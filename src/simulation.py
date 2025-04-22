@@ -1,3 +1,4 @@
+# simulation.py
 from torch import Tensor
 import torch
 from agent import Agent
@@ -52,13 +53,13 @@ class Simulation:
         )
         self.vehicle.vehicle_setup(center_point, heading, speed)
         self.agent.sensors.update_sensors(
-            self.vehicle.center_point, self.vehicle.heading
+            self.vehicle.center_point, self.vehicle.abs_heading
         )
 
-    def sim_random_reset(self, speed_range: list[float] = [10.0, 75.0]):
+    def sim_random_reset(self, speed_range: list[float] = [20.0, 75.0]):
         longitude = random.uniform(0, 1)
         latitude = random.uniform(0.25, 0.75)
-        dir_angle_offset = random.uniform(-np.pi / 4, np.pi / 4)
+        dir_angle_offset = random.uniform(-np.pi / 5, np.pi / 5)
         speed = random.uniform(speed_range[0], speed_range[1])
         center_point, heading = self.environment.position_from_coordinates(
             longitude=longitude,
@@ -66,10 +67,10 @@ class Simulation:
             angle_offset=dir_angle_offset,
         )
         self.vehicle.vehicle_setup(
-            center_point=center_point, heading=heading, speed_mph=speed
+            center_point=center_point, abs_heading=heading, speed_mph=speed
         )
         self.agent.sensors.update_sensors(
-            self.vehicle.center_point, self.vehicle.heading
+            self.vehicle.center_point, self.vehicle.abs_heading
         )
 
     def get_state(self) -> Tensor:
@@ -79,11 +80,16 @@ class Simulation:
         """
         _, sensor_data = self.agent.sensors.sense(self.environment, self.vehicle)
         return torch.tensor(
-            [self.vehicle.speed_mph, self.vehicle.heading, *sensor_data],
+            [
+                self.vehicle.speed_mph
+                / self.vehicle.fps_to_mph(self.vehicle.max_speed_fps),
+                self.vehicle.abs_heading / np.pi,
+                *(torch.tensor(sensor_data) / 200.0),
+            ],
             dtype=torch.float32,
         )
 
-    def sim_step(self) -> None:
+    def sim_step(self):
         """Executes a single step in the simulation.
         1. Gets the current state of the simulation.
         2. Gets the action from the agent based on the current state.
@@ -93,26 +99,29 @@ class Simulation:
         6. Gets reward from agent and returns it.
         """
         self.agent.sensors.update_sensors(
-            self.vehicle.center_point, self.vehicle.heading
+            self.vehicle.center_point, self.vehicle.abs_heading
         )
 
         state = self.get_state()
+        action = self.agent.decide(state)
 
-        action = self.agent.decide(state)[0]
         steering, acceleration = action[0], action[1]
 
         self.vehicle.update_position(steering, acceleration, self.dt)
 
         self.agent.sensors.update_sensors(
-            self.vehicle.center_point, self.vehicle.heading
+            self.vehicle.center_point, self.vehicle.abs_heading
         )
 
         self.update_sim_status()
 
         reward = self.agent.compute_reward(
-            state, in_lane=self.vehicle_in_lane, in_motion=self.vehicle_in_motion
+            self.get_state(),
+            in_lane=self.vehicle_in_lane,
+            in_motion=self.vehicle_in_motion,
         )
-        return reward
+        # print(f"reward {reward}")
+        return state, action, reward
 
     def update_sim_status(self) -> None:
         """

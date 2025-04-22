@@ -44,8 +44,10 @@ def test_sense():
     vehicle = Vehicle()
     center_point = Point(50, 50)
     heading = 0.0
-    vehicle.vehicle_setup(center_point=center_point, heading=heading, speed_mph=25.0)
-    sa.update_sensors(center_point, vehicle.heading)
+    vehicle.vehicle_setup(
+        center_point=center_point, abs_heading=heading, speed_mph=25.0
+    )
+    sa.update_sensors(center_point, vehicle.abs_heading)
     points, distances = sa.sense(env, vehicle=vehicle)
     assert distances[0] == 6.0, "First sensor distance should be 6.0."
     assert distances[4] == 6.0, "Last sensor distance should be 6.0."

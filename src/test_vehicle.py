@@ -8,7 +8,7 @@ def test_going_left():
     center_point = Point(0, 0)
     heading = np.pi / 2
     speed = 0.0
-    v.vehicle_setup(center_point=center_point, heading=heading, speed_mph=speed)
+    v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
     accel = 0.0
     dt = 1.0
     steering = np.pi / 2  # complete left turn 90 degrees
@@ -28,7 +28,7 @@ def test_going_right():
     center_point = Point(0, 0)
     heading = np.pi / 2
     speed = 0.0
-    v.vehicle_setup(center_point=center_point, heading=heading, speed_mph=speed)
+    v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
     accel = 0.0
     dt = 1.0
     steering = -np.pi / 2  # complete left turn 90 degrees
@@ -48,7 +48,7 @@ def test_going_straight():
     center_point = Point(0, 0)
     heading = np.pi / 2
     speed = 0.0
-    v.vehicle_setup(center_point=center_point, heading=heading, speed_mph=speed)
+    v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
     # 0 to 60 mph in 8 seconds should be: 27000 mph
     accel = 27000.0
     dt = 8.0
@@ -72,7 +72,7 @@ def test_breaking():
     center_point = Point(0, 0)
     heading = np.pi / 2
     speed = 25.0
-    v.vehicle_setup(center_point=center_point, heading=heading, speed_mph=speed)
+    v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
     accel = -1000
     dt = 5.0
     v.update_position(steering_rad=0.0, acceleration_mph2=accel, dt_sec=dt)
@@ -86,7 +86,7 @@ def test_no_movement():
     center_point = Point(0, 0)
     heading = np.pi / 2
     speed = 0
-    v.vehicle_setup(center_point=center_point, heading=heading, speed_mph=speed)
+    v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
     acceleration = 0.0
     steering = 0.0
     dt = 1.0

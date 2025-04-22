@@ -1,132 +1,365 @@
-import numpy as np
-import torch
+# summer_agent.py
 from agent import Agent
-from torch import Tensor, nn, optim
-
 from sensor_array import SensorArray
+from environment import Environment
+from vehicle import Vehicle
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch import Tensor
+import numpy as np
+import carlos_logging
+import random
+from collections import deque
 
 
-class ActorCriticModel(nn.Module):
-    def __init__(self, n_inputs, n_outputs):
-        super().__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(n_inputs, 128),
-            nn.ReLU(),
-        )
-        self.actor = nn.Sequential(
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, n_outputs),
-            nn.Tanh(),  # Steering and acceleration are bounded [-1, 1]
-        )
-        self.critic = nn.Sequential(
-            nn.Linear(128, 64), nn.ReLU(), nn.Linear(64, 1)  # State-value output
-        )
+class ActorNetwork(nn.Module):
+    """Actor network for the agent. Maps states to actions."""
+
+    def __init__(self, obs_dim, action_dim, hidden_dim=128):
+        super(ActorNetwork, self).__init__()
+        self.fc1 = nn.Linear(obs_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, x):
-        x = self.shared(x)
-        return self.actor(x), self.critic(x)
+        # print(list(x[-1]))
+        x = F.leaky_relu(self.fc1(x))
+        x = F.leaky_relu(self.fc2(x))
+        # Output between -1 and 1 for steering and acceleration actions
+        x = torch.tanh(self.fc3(x))
+        return x
 
-    # def save(self, dir_path="./checkpoints", tag="latest"):
-    #     os.makedirs(dir_path, exist_ok=True)
-    #     torch.save(
-    #         {
-    #             "actor_state_dict": self.actor.state_dict(),
-    #             "critic_state_dict": self.critic.state_dict(),
-    #             "actor_optimizer_state_dict": self.actor_optim.state_dict(),
-    #             "critic_optimizer_state_dict": self.critic_optim.state_dict(),
-    #         },
-    #         os.path.join(dir_path, f"agent_{tag}.pt"),
-    #     )
-    #     carlos_logging.log_message(
-    #         f"Saved model checkpoint to {dir_path}/agent_{tag}.pt"
-    #     )
 
-    # def load(self, path):
-    #     checkpoint = torch.load(path)
-    #     self.actor.load_state_dict(checkpoint["actor_state_dict"])
-    #     self.critic.load_state_dict(checkpoint["critic_state_dict"])
-    #     self.actor_optim.load_state_dict(checkpoint["actor_optimizer_state_dict"])
-    #     self.critic_optim.load_state_dict(checkpoint["critic_optimizer_state_dict"])
-    #     carlos_logging.log_message(f"Loaded model checkpoint from {path}")
+class CriticNetwork(nn.Module):
+    """Critic network for the agent. Maps states and actions to value estimates."""
+
+    def __init__(self, obs_dim, action_dim, hidden_dim=64):
+        super(CriticNetwork, self).__init__()
+        self.fc1 = nn.Linear(obs_dim + action_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+
+    def forward(self, state, action):
+        x = torch.cat([state, action], dim=-1)
+        x = F.leaky_relu(self.fc1(x))
+        x = F.leaky_relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+class ReplayBuffer:
+    """Memory buffer for experience replay."""
+
+    def __init__(self, capacity=10000):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size):
+        state, action, reward, next_state, done = zip(
+            *random.sample(self.buffer, batch_size)
+        )
+        return (
+            torch.stack(state),
+            (
+                torch.stack(action)
+                if isinstance(action[0], torch.Tensor)
+                else torch.tensor(action)
+            ),
+            torch.tensor(reward, dtype=torch.float32),
+            torch.stack(next_state),
+            torch.tensor(done, dtype=torch.float32),
+        )
+
+    def __len__(self):
+        return len(self.buffer)
 
 
 class NewAgent(Agent):
+    """Reinforcement learning agent using Actor-Critic architecture."""
+
     def __init__(
         self,
         sensor_array: SensorArray,
-        lr=1e-3,
-        input_scaler=None,
-        max_accel: float = 10.0,
+        obs_dim,
+        action_dim=2,
+        max_accel=5.0,
+        max_turn_rate=np.pi * 2,
+        lr_actor=1e-4,
+        lr_critic=1e-3,
+        gamma=0.99,
+        tau=0.01,
+        buffer_size=10000,
+        batch_size=256,
+        exploration_noise=0.1,
     ):
-        self.num_inputs = 2 + sensor_array.num_sensors  # speed,
-        self.input_scaler = input_scaler or torch.tensor(
-            [0.001] * self.num_inputs + [np.pi, 70.0]
-        )
-        self.max_accel = max_accel
-        self.model = ActorCriticModel(self.num_inputs, 2)
-        self.optim = optim.Adam(self.model.parameters(), lr=lr)
+        """
+        Initialize the Summer Agent.
 
+        Args:
+            sensor_array: Array of sensors for environment perception
+            obs_dim: Dimension of the observation space
+            action_dim: Dimension of the action space
+            max_accel: Maximum acceleration
+            lr_actor: Learning rate for the actor network
+            lr_critic: Learning rate for the critic network
+            gamma: Discount factor
+            tau: Soft update parameter
+            buffer_size: Size of the replay buffer
+            batch_size: Batch size for training
+            exploration_noise: Standard deviation of exploration noise
+        """
         super().__init__(sensor_array)
 
-    def decide(self, state: Tensor) -> Tensor:
-        # Warning: doesn't handle multiple decisions. Only provide a single dimensional array
-        action, _critic_out = self.model(state.reshape(-1, self.num_inputs))
-        self.last_state = state
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.max_accel = max_accel
+        self.max_turn_rate = max_turn_rate
+        self.gamma = gamma
+        self.tau = tau
+        self.batch_size = batch_size
+        self.exploration_noise = exploration_noise
 
-        return (action * torch.tensor([np.pi, self.max_accel])).flatten()
+        # Initialize actor and critic networks
+        self.actor = ActorNetwork(obs_dim, action_dim)
+        self.critic = CriticNetwork(obs_dim, action_dim)
 
-    def compute_reward(self, state, in_lane, in_motion):
-        speed, steering_angle, *sensor_data = state
+        # Initialize target networks with the same weights
+        self.actor_target = ActorNetwork(obs_dim, action_dim)
+        self.critic_target = CriticNetwork(obs_dim, action_dim)
+        self.actor_target.load_state_dict(self.actor.state_dict())
+        self.critic_target.load_state_dict(self.critic.state_dict())
+
+        # Set up optimizers
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr_actor)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_critic)
+
+        # Set up replay buffer
+        self.memory = ReplayBuffer(buffer_size)
+
+        # For keeping track of the last state
+        self.last_state = None
+        self.last_action = None
+
+        self.training = True
+        carlos_logging.log_message("NewAgent initialized")
+
+    def update_expl_noise(self, episode: int, max_episodes: int):
+        self.exploration_noise = max(0.1, 0.3 * (1 - episode / max_episodes))
+
+    def decide(self, state: Tensor):
+        """
+        Choose an action based on the current state.
+
+        Args:
+            state: Current state of the environment
+
+        Returns:
+            action: Action to take (steering, acceleration)
+        """
+        # Set actor to evaluation mode
+        self.actor.eval()
+
+        with torch.no_grad():
+            # Get action from actor network
+            action = self.actor(state)
+
+            # Add exploration noise during training
+            if self.training:
+                noise = torch.randn_like(action) * self.exploration_noise
+                action = torch.clamp(action + noise, -1.0, 1.0)
+
+        # Set actor back to training mode
+        self.actor.train()
+
+        # Save state and action for training
+        self.last_state = state.clone()
+        self.last_action = action.clone()
+
+        action = action * torch.tensor([self.max_turn_rate, self.max_accel])
+        return action
+
+    def compute_reward(self, state: Tensor, in_lane: bool, in_motion: bool) -> float:
+        """
+        Compute the reward based on the current state and environment conditions.
+
+        Args:
+            state: Current state of the environment
+            in_lane: Whether the vehicle is in the lane
+            in_motion: Whether the vehicle is in motion
+
+        Returns:
+            reward: Computed reward value
+        """
+        # Extract important state information
+        speed, heading = state[:2] * torch.tensor([self.max_accel, self.max_turn_rate])
+        sensor_data = state[2:] * 200  # Sensor readings
+
+        # Base reward for staying in lane
         reward = 0.0
 
-        # 1. Stay in lane
-        reward += 1.0 if in_lane else -2.0
+        if not in_lane:
+            # Heavy penalty for leaving the lane
+            reward -= 10.0
+            return reward
 
-        # 2. Encourage motion
-        reward += 0.5 if in_motion else -0.5
+        if not in_motion:
+            # Penalty for stopping
+            reward -= 10.0
+            return reward
 
-        # 3. Encourage higher speed (normalized)
-        reward += 0.1 * (speed / 75.0)
+        # Reward for speed - encourage moderate speeds
+        speed_reward = (speed - 10) if speed > 10 else -10
+        reward += speed_reward
 
-        # 4. Penalize proximity to obstacles
-        min_sensor = min(sensor_data)
-        if min_sensor < 1.0:
-            reward -= 1.0 - min_sensor
+        # Reward for staying in the center of the lane
+        # Use sensor readings to determine distance from center
+        # Assuming sensors are arranged symmetrically with center sensor at index len(sensor_data)//2
+        center_index = len(sensor_data) // 2
+        center_distance = sensor_data[center_index]
 
-        # 6. Small time penalty
-        reward -= 0.01
+        # Higher reward for staying in the center
+        center_reward = 20.0 * (center_distance / 200)
+        reward += center_reward
 
-        return torch.tensor([reward])
+        # Penalty for being close to the edges
+        edge_penalty = 0.0
+        min_sensor_reading = torch.min(sensor_data)
+        # print("min sense", min_sensor_reading)
+        if min_sensor_reading < 3:  # If any sensor reading is less than 20 units
+            edge_penalty = -10.0 * (1.0 - min_sensor_reading / 3.0)
+        reward += edge_penalty
 
-    def train_step(self, next_state: Tensor, reward: Tensor, done: bool):
-        # Convert next_state to proper shape
-        next_state = next_state.reshape(-1, self.num_inputs)
+        # Small penalty for extreme steering or acceleration to encourage smooth driving
+        if hasattr(self, "last_action") and self.last_action is not None:
+            action_penalty = -2.0 * torch.sum(torch.abs(self.last_action))
+            reward += action_penalty.item()
 
-        # Get value estimate and action from previous state
+        # print("speed, center dist, edge, action")
+        # print(speed)
+        # print("Rewards:")
+        # print(
+        #     speed_reward,
+        #     center_reward.item(),
+        #     edge_penalty,
+        #     action_penalty.item(),
+        # )
+
+        # print("Final reward", reward)
+        return reward
+
+    def train_step(self, state, action, reward, done):
+        """
+        Train the agent using the provided experience.
+
+        Args:
+            state: Current state
+            action: Action taken
+            reward: Reward received
+            done: Whether the episode is done
+        """
+        # Calculate next state by taking a step in the environment
+        # In this case, we're using the actual next state from the simulation
+        next_state = self.last_state  # This is actually the current state
+
+        # Store experience in replay buffer
+        self.memory.push(state, action, reward, next_state, done)
+
+        # Don't train until we have enough samples
+        if len(self.memory) < self.batch_size:
+            return None, None
+
+        # Sample a batch from the replay buffer
+        states, actions, rewards, next_states, dones = self.memory.sample(
+            self.batch_size
+        )
+
+        # Update critic
         with torch.no_grad():
-            _, next_value = self.model(next_state)
-            target = reward + (
-                0.99 * next_value * (1.0 - float(done))
-            )  # discounted future reward
+            next_actions = self.actor_target(next_states)
+            next_q_values = self.critic_target(next_states, next_actions).squeeze()
+            target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
-        # Get current action and value estimate
-        action, value = self.model(self.last_state.reshape(-1, self.num_inputs))
+        # Calculate critic loss
+        current_q_values = self.critic(states, actions).squeeze()
+        critic_loss = F.mse_loss(current_q_values, target_q_values)
 
-        # Critic loss (MSE)
-        value_loss = nn.functional.mse_loss(value, target)
+        # Update critic network
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
 
-        # Actor loss (encourage actions that lead to higher value)
-        log_prob = -(
-            (action - action.detach()) ** 2
-        ).mean()  # placeholder for continuous action log_prob
-        advantage = (target - value).detach()
-        actor_loss = -log_prob * advantage
+        # Update actor
+        actor_loss = -self.critic(states, self.actor(states)).mean()
 
-        loss = value_loss + actor_loss
+        # Update actor network
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
 
-        self.optim.zero_grad()
-        loss.backward()
-        self.optim.step()
+        # Soft update target networks
+        self._soft_update(self.actor, self.actor_target)
+        self._soft_update(self.critic, self.critic_target)
 
-        # return loss.item()
+        return actor_loss.item(), critic_loss.item()
+
+    def _soft_update(self, local_model, target_model):
+        """
+        Soft update target network parameters.
+        θ_target = τ*θ_local + (1 - τ)*θ_target
+
+        Args:
+            local_model: Source network
+            target_model: Target network
+        """
+        for target_param, local_param in zip(
+            target_model.parameters(), local_model.parameters()
+        ):
+            target_param.data.copy_(
+                self.tau * local_param.data + (1.0 - self.tau) * target_param.data
+            )
+
+    def save(self, dir_path="./checkpoints", tag="latest"):
+        """
+        Save the model parameters.
+
+        Args:
+            dir_path: Directory to save the parameters
+            tag: Tag to identify the save file
+        """
+        import os
+
+        os.makedirs(dir_path, exist_ok=True)
+        torch.save(
+            {
+                "actor_state_dict": self.actor.state_dict(),
+                "critic_state_dict": self.critic.state_dict(),
+                "actor_target_state_dict": self.actor_target.state_dict(),
+                "critic_target_state_dict": self.critic_target.state_dict(),
+                "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
+                "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+            },
+            os.path.join(dir_path, f"agent_{tag}.pt"),
+        )
+        carlos_logging.log_message(
+            f"Saved model checkpoint to {dir_path}/agent_{tag}.pt"
+        )
+
+    def load(self, path):
+        """
+        Load model parameters.
+
+        Args:
+            path: Path to the saved parameters
+        """
+        checkpoint = torch.load(path)
+        self.actor.load_state_dict(checkpoint["actor_state_dict"])
+        self.critic.load_state_dict(checkpoint["critic_state_dict"])
+        self.actor_target.load_state_dict(checkpoint["actor_target_state_dict"])
+        self.critic_target.load_state_dict(checkpoint["critic_target_state_dict"])
+        self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
+        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+        carlos_logging.log_message(f"Loaded model checkpoint from {path}")

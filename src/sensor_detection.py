@@ -51,6 +51,9 @@ def get_lane_detection(sensor: Sensor, lane: Lane) -> float:
     #     intersection = left_edge_intersection
     #     closest_point = left_edge_point
 
+    if intersection == -1:
+        intersection = sensor.sensor_length
+
     return closest_point, intersection
 
 

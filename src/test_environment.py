@@ -16,7 +16,7 @@ def test_position_from_coordinates():
     angle_offset = 0.0
     v = Vehicle()
     center, heading = env.position_from_coordinates(longitude, latitude, angle_offset)
-    v.vehicle_setup(center_point=center, heading=heading, speed_mph=25.0)
+    v.vehicle_setup(center_point=center, abs_heading=heading, speed_mph=25.0)
     assert (
         199.99999 <= v.center_point.x <= 200.000001
     ), f"Vehicle center point X {v.center_point.x} does not match expected value."
@@ -46,7 +46,7 @@ def test_position_in_lane_on_center_line():
     lane = Lane(control_points=control_points, lane_width=12, closed_loop=closed_loop)
     env = Environment(lane=lane)
     v = Vehicle()
-    v.vehicle_setup(center_point=Point(200, 200), heading=0.0, speed_mph=25.0)
+    v.vehicle_setup(center_point=Point(200, 200), abs_heading=0.0, speed_mph=25.0)
     in_lane = env.point_in_lane(v.center_point)
     assert in_lane, "Vehicle is not in lane when it should be."
     center_pos, left_edge_pos, right_edge_pos = env.point_position_in_lane(
@@ -74,7 +74,7 @@ def test_position_in_lane_out_of_bounds():
     lane = Lane(control_points=control_points, lane_width=12, closed_loop=closed_loop)
     env = Environment(lane=lane)
     v = Vehicle()
-    v.vehicle_setup(center_point=Point(200, 207), heading=0.0, speed_mph=25.0)
+    v.vehicle_setup(center_point=Point(200, 207), abs_heading=0.0, speed_mph=25.0)
     in_lane = env.point_in_lane(v.center_point)
     assert not in_lane, "Vehicle is not in lane when it should be."
     center_pos, left_edge_pos, right_edge_pos = env.point_position_in_lane(
@@ -108,7 +108,7 @@ def test_position_in_lane_left_of_center():
     lane = Lane(control_points=control_points, lane_width=12, closed_loop=closed_loop)
     env = Environment(lane=lane)
     v = Vehicle()
-    v.vehicle_setup(center_point=Point(200, 202), heading=0.0, speed_mph=25.0)
+    v.vehicle_setup(center_point=Point(200, 202), abs_heading=0.0, speed_mph=25.0)
     in_lane = env.point_in_lane(v.center_point)
     assert in_lane, "Vehicle is not in lane when it should be."
     center_pos, left_edge_pos, right_edge_pos = env.point_position_in_lane(
@@ -139,7 +139,7 @@ def test_position_in_lane_right_of_center():
     lane = Lane(control_points=control_points, lane_width=12, closed_loop=closed_loop)
     env = Environment(lane=lane)
     v = Vehicle()
-    v.vehicle_setup(center_point=Point(200, 198), heading=0.0, speed_mph=25.0)
+    v.vehicle_setup(center_point=Point(200, 198), abs_heading=0.0, speed_mph=25.0)
     in_lane = env.point_in_lane(v.center_point)
     assert in_lane, "Vehicle is not in lane when it should be."
     center_pos, left_edge_pos, right_edge_pos = env.point_position_in_lane(

@@ -59,7 +59,9 @@ def test_init_vehicle():
     heading = math.pi / 2
     speed = 10.0
     vehicle = Vehicle()
-    vehicle.vehicle_setup(center_point=center_point, heading=heading, speed_mph=speed)
+    vehicle.vehicle_setup(
+        center_point=center_point, abs_heading=heading, speed_mph=speed
+    )
     assert vehicle is not None, "Vehicle initialization failed."
     assert hasattr(vehicle, "center_point"), "Vehicle center point is not set."
     assert hasattr(vehicle, "heading"), "Vehicle heading is not set."
@@ -154,7 +156,7 @@ def test_graphics():
     graphics.plot_environment(env)  # Plot the environment
     graphics.plot_vehicle(vehicle)  # Plot the vehicle
     sensor_array.update_sensors(
-        vehicle.center_point, vehicle.heading
+        vehicle.center_point, vehicle.abs_heading
     )  # Update sensor positions based on vehicle
     # print(f"center: {vehicle.center_point.values()}, heading: {vehicle.heading_point.values()}")
     # print([s.angle_offset for s in sensor_array.sensors])

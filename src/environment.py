@@ -1,3 +1,4 @@
+# environment.py
 import torch
 from lane import Lane
 from point import Point
@@ -138,7 +139,13 @@ def determine_distance(point: Point, segment_pt1: Point, segment_pt2: Point):
     dy = y2 - y1
 
     # Compute the projection of point3 onto the line
-    t = ((x3 - x1) * dx + (y3 - y1) * dy) / (dx**2 + dy**2)
+    # if (dx**2 + dy**2) == 0:
+    #     print("x1-2, y1-2, dx, dy:", (x1, x2), (y1, y2), (dx, dy))
+    t = (
+        ((x3 - x1) * dx + (y3 - y1) * dy) / (dx**2 + dy**2)
+        if (dx**2 + dy**2) != 0
+        else 0
+    )
 
     # Clamp t to the range [0,1] to ensure the closest point is on the segment
     t = max(0, min(1, t))

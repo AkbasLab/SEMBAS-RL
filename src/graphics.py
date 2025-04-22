@@ -76,7 +76,7 @@ def plot_vehicle(vehicle: Vehicle):  # Tested as of 3/29/2025
 
     # Plot vehicle heading with arrow
     # Getting heading point and scalling by 10.0 so that it is visible.
-    d = np.array(vehicle.get_direction()) * 10.0
+    d = np.array(vehicle.get_direction_vector()) * 10.0
     heading_point = vehicle.center_point + Point(d[0], d[1])
     x = [vehicle.center_point.x, (heading_point.x)]
     y = [vehicle.center_point.y, (heading_point.y)]

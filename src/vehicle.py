@@ -19,6 +19,7 @@ class Vehicle:
         min_speed_mph: float = 0.0,
         max_speed_mph: float = 150.0,
         sec_0_to_60: float = 8.0,
+        max_acceleration=None,
     ):  # Tested as of 3/31/2025
         """Initializes a vehicle object with default parameters.
         min_speed and max_speed are in miles per hour. Represents vehicle speed capabilities.
@@ -44,11 +45,13 @@ class Vehicle:
         self.max_speed_fps = self.mph_to_fps(max_speed_mph)
         # Calculating the max acceleration based on the number of seconds it takes the car to go from 0 to 60 miles per hour.
         # Acceleration = (Final speed - initial speed) / time
-        self.max_acceleration_fps2 = self.mph_to_fps(60.0) / sec_0_to_60
+        self.max_acceleration_fps2 = (
+            max_acceleration or self.mph_to_fps(60.0) / sec_0_to_60
+        )
         self.max_breaking_fps2 = 15.0
 
     def vehicle_setup(
-        self, center_point: Point, heading: float, speed_mph: float
+        self, center_point: Point, abs_heading: float, speed_mph: float
     ):  # Tested as of 3/29/2025
         """Sets up the vehicle based on the given center point, heading angle and speed.
 
@@ -60,10 +63,10 @@ class Vehicle:
         self.center_point = center_point
         speed_fps = self.mph_to_fps(speed_mph)
         self.speed_fps = np.clip(speed_fps, self.min_speed_fps, self.max_speed_fps)
-        self.heading = heading
+        self.abs_heading = abs_heading
         self.distance_travelled_ft = 0
         self.acceleration_fps2 = 0
-        self.body.build_body(center_point=center_point, turn_angle=heading)
+        self.body.build_body(center_point=center_point, turn_angle=abs_heading)
 
     def vehicle_capabilities_str(self):  # Tested as of 3/31/2025
         """Returns string with the vehicles speed, acceleration, and breaking capabilities."""
@@ -78,7 +81,7 @@ class Vehicle:
         """Returns string with center, heading, speed mph, acceleration mph^2, and distance travelled feet"""
         return (
             f"Center: ({self.center_point.x}, {self.center_point.y}) -- "
-            f"Heading: ({self.heading * 180 / np.pi}) deg -- "
+            f"Heading: ({self.abs_heading * 180 / np.pi}) deg -- "
             f"Speed: {self.speed_mph} mph -- "
             f"Acceleration: {self.acceleration_mph2} mph^2 -- "
             f"Distance travelled: {self.distance_travelled_ft} feet"
@@ -115,7 +118,7 @@ class Vehicle:
         """Converts given fps^2 value to mph^2"""
         return value_fps2 * self.fps2_to_mph2_conversion
 
-    def get_direction(self, angle: np.float32 = None) -> torch.Tensor:
+    def get_direction_vector(self, angle: np.float32 = None) -> torch.Tensor:
         """Gets the direction vector x, y for a given angle. If angle is None, uses the vehicles heading angle.
 
         Args:
@@ -124,7 +127,7 @@ class Vehicle:
         Returns:
             torch.Tensor: Tensor containing x, y values of the direction vector
         """
-        angle = angle or self.heading
+        angle = angle or self.abs_heading
         return torch.tensor([np.cos(float(angle)), np.sin(float(angle))])
 
     def get_heading_point(self, angle: float = None) -> Point:
@@ -136,8 +139,8 @@ class Vehicle:
         Returns:
             Point: Point object with x, y values for the point at the center offset by the direction vector.
         """
-        angle = angle or self.heading
-        heading_direction = np.array(self.get_direction(angle))
+        angle = angle or self.abs_heading
+        heading_direction = np.array(self.get_direction_vector(angle))
         hx = self.center_point.x + heading_direction[0]
         hy = self.center_point.y + heading_direction[1]
         return Point(hx, hy)
@@ -178,8 +181,9 @@ class Vehicle:
 
         # Apply steering: rotate the direction vector by the steering input
         turn_angle = steering_rad * dt_sec
-        new_heading = self.heading + turn_angle
-        new_direction = self.get_direction(new_heading)
+        # % (2 * np.pi) # TODO  may add precision error
+        new_heading = self.abs_heading + turn_angle
+        new_direction = self.get_direction_vector(new_heading)
 
         # Takes into account acceleration over time
         distance = (self.speed_fps * dt_sec) + (
@@ -191,16 +195,18 @@ class Vehicle:
         self.center_point = Point(cx, cy)
 
         # Update heading
-        self.heading = new_heading
+        self.abs_heading = new_heading
 
         # Update speed
         self.speed_fps = new_speed
+
+        # print(self.abs_heading, self.speed_fps, steering_rad, acceleration_mph2)
 
         # Adding the distance travelled in feet
         self.distance_travelled_ft += distance
 
         # Rebuilding the body after updating position
-        self.body.build_body(self.center_point, self.heading)
+        self.body.build_body(self.center_point, self.abs_heading)
 
 
 class VehicleBody:

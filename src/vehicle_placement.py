@@ -2,6 +2,8 @@ from point import Point
 from lane import Lane
 import numpy as np
 
+from vehicle import Vehicle
+
 
 def lateral_adjustment(latitude: float, angle_offset: float) -> float:
     """Given a latitude and an angle_offset, returns an adjusted angle_offset to take into account if the latitude falls on the edge of the lane.

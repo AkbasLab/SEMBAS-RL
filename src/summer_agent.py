@@ -17,9 +17,10 @@ class Actor(nn.Module):
         self.log_std = nn.Parameter(torch.zeros(action_dim))  # Learnable log std
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mean = self.mean(x)
+        x1 = F.relu(self.fc1(x))
+        x2 = F.relu(self.fc2(x1))
+
+        mean = self.mean(x2)
         std = torch.exp(self.log_std)
         return mean, std
 
@@ -62,25 +63,37 @@ class SummerAgent(Agent):
         super().__init__(sensor_array)
         self.obs_dim = obs_dim
         self.out_dim = action_dim
+
         self.actor = Actor(obs_dim, action_dim)
         self.critic = Critic(obs_dim)
+
         self.actor_optim = torch.optim.Adam(self.actor.parameters(), lr=lr_actor)
         self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=lr_critic)
         self.gamma = gamma
         self.max_accel = max_accel
         self.output_scaling = torch.tensor([np.pi, self.max_accel])
 
+    # def decide(self, state: torch.Tensor):
+    #     # state = state.reshape(-1, self.obs_dim)
+    #     mean, std = self.actor(state)
+    #     dist = torch.distributions.Normal(mean, std)
+    #     raw_action = dist.rsample()
+    #     self.last_log_prob = dist.log_prob(raw_action).sum()
+    #     self.last_state = state.clone()
+    #     self.last_action = raw_action.clone().detach()
+
+    #     # steering = torch.tanh(raw_action[0]) * np.pi
+    #     # accel = torch.sigmoid(raw_action[1]) * self.max_accel
+    #     return raw_action * self.output_scaling
+
     def decide(self, state: torch.Tensor):
-        state = state.reshape(-1, self.obs_dim)
         mean, std = self.actor(state)
         dist = torch.distributions.Normal(mean, std)
-        raw_action = dist.rsample()
-        self.last_log_prob = dist.log_prob(raw_action).sum()
-        self.last_state = state
-        self.last_action = raw_action.detach()
+        raw_action = dist.rsample()  # This keeps gradients
+        self.last_log_prob = dist.log_prob(raw_action).sum()  # Save for training
+        self.last_state = state  # No need to clone
+        self.last_action = raw_action  # No need to detach
 
-        # steering = torch.tanh(raw_action[0]) * np.pi
-        # accel = torch.sigmoid(raw_action[1]) * self.max_accel
         return raw_action * self.output_scaling
 
     def compute_reward(self, state, in_lane: bool, in_motion: bool) -> float:
@@ -107,19 +120,26 @@ class SummerAgent(Agent):
         return reward
 
     def train_step(self, next_state: torch.Tensor, reward, done):
-        next_state = next_state.reshape(-1, self.obs_dim)
+        # next_state = next_state.reshape(-1, self.obs_dim)
         reward_tensor = torch.tensor([reward], dtype=torch.float32)
         done_tensor = torch.tensor([done], dtype=torch.float32)
 
         value = self.critic(self.last_state)
-        next_value = self.critic(next_state).detach()
-        target = reward_tensor + self.gamma * next_value * (1 - done_tensor)
-        advantage = target - value
+        with torch.no_grad():
+            next_value = self.critic(next_state)
+            target = reward_tensor + self.gamma * next_value * (1 - done_tensor)
+        advantage = target.detach() - value
 
         # Update critic
-        critic_loss = advantage.pow(2).mean()
+        critic_loss = F.mse_loss(value, target.detach())
         self.critic_optim.zero_grad()
         critic_loss.backward()
+
+        critic_grad_norm = sum(
+            p.grad.norm().item() for p in self.critic.parameters() if p.grad is not None
+        )
+        print(f"Critic grad norm: {critic_grad_norm}")
+
         self.critic_optim.step()
 
         # Update actor
@@ -127,6 +147,11 @@ class SummerAgent(Agent):
         self.actor_optim.zero_grad()
         actor_loss.backward()
         self.actor_optim.step()
+
+        actor_grad_norm = sum(
+            p.grad.norm().item() for p in self.actor.parameters() if p.grad is not None
+        )
+        print(f"Actor grad norm: {actor_grad_norm}")
 
     def save(self, dir_path="./checkpoints", tag="latest"):
         os.makedirs(dir_path, exist_ok=True)

@@ -60,7 +60,7 @@ def test_sim_reset_left_edge():
     ), "Vehicle center point Y does not match expected value."
     assert (
         ((-math.pi / 4) - 0.0000001)
-        <= sim.vehicle.heading
+        <= sim.vehicle.abs_heading
         <= ((-math.pi / 4) + 0.0000001)
     ), "Heading angle does not match expected value."
 
@@ -101,7 +101,9 @@ def test_sim_reset_right_edge():
         93.999999 <= sim.vehicle.center_point.y <= 94.000001
     ), "Vehicle center point Y does not match expected value."
     assert (
-        (math.pi / 4 - 0.0000001) <= sim.vehicle.heading <= (math.pi / 4 + 0.0000001)
+        (math.pi / 4 - 0.0000001)
+        <= sim.vehicle.abs_heading
+        <= (math.pi / 4 + 0.0000001)
     ), "Heading angle does not match expected value."
 
     print(
