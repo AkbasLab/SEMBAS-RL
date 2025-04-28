@@ -34,6 +34,9 @@ class Point:
     def values(self):
         return [self.x, self.y]
 
+    def to_tensor(self) -> torch.Tensor:
+        return torch.tensor(self.values())
+
     def distanceTo(self, other: "Point") -> float:
         return (self - other).norm(p=2)
 

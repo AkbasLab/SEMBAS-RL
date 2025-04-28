@@ -46,6 +46,23 @@ class Lane:
         )
         self.left_edge, self.right_edge = self.calculate_edges(x_center, y_center)
 
+    @staticmethod
+    def _distance_between(p1: Point, p2: Point) -> float:
+        return np.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2)
+
+    def nearest_neighbor(self, p: Point) -> tuple[int, Point]:
+        "Returns the index of the point closest to @p. O(n) search time"
+        nearest = (
+            self._distance_between(p, self.control_points[0]),
+            0,
+        )
+        for i, lp in enumerate(self.control_points[1:]):
+            d = self._distance_between(p, lp)
+            if d < nearest[0]:
+                nearest = (d, i + 1)
+
+        return nearest[1]
+
     def calculate_center(
         self, control_points: list[Point]
     ) -> tuple[list[Point], list[float], list[float]]:

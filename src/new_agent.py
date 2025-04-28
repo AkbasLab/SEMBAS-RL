@@ -81,20 +81,26 @@ class ReplayBuffer:
 class NewAgent(Agent):
     """Reinforcement learning agent using Actor-Critic architecture."""
 
+    WP_MAX_ANGLE = 0.9 * np.pi
+
     def __init__(
         self,
         sensor_array: SensorArray,
         obs_dim,
         action_dim=2,
+        max_sense_dist=200,
+        max_speed=75,
         max_accel=5.0,
         max_turn_rate=np.pi * 2,
         lr_actor=1e-4,
         lr_critic=1e-3,
         gamma=0.99,
-        tau=0.01,
+        tau=0.001,
         buffer_size=10000,
         batch_size=256,
         exploration_noise=0.1,
+        lr_schedule: list[tuple[float, tuple[float, float]]] = None,
+        debug=False,
     ):
         """
         Initialize the Summer Agent.
@@ -111,17 +117,26 @@ class NewAgent(Agent):
             buffer_size: Size of the replay buffer
             batch_size: Batch size for training
             exploration_noise: Standard deviation of exploration noise
+            lr_schedule: (% completion, (actor LR, critic LR))
         """
         super().__init__(sensor_array)
 
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        self.max_sense_dist = max_sense_dist
+        self.max_speed = max_speed
         self.max_accel = max_accel
         self.max_turn_rate = max_turn_rate
         self.gamma = gamma
         self.tau = tau
         self.batch_size = batch_size
         self.exploration_noise = exploration_noise
+        self.lr_schedule = (
+            sorted(lr_schedule, key=lambda x: x[0]) if lr_schedule else None
+        )
+        self.lr_index = 0
+
+        self.debug = debug
 
         # Initialize actor and critic networks
         self.actor = ActorNetwork(obs_dim, action_dim)
@@ -149,6 +164,18 @@ class NewAgent(Agent):
 
     def update_expl_noise(self, episode: int, max_episodes: int):
         self.exploration_noise = max(0.1, 0.3 * (1 - episode / max_episodes))
+
+    def update_lr(self, episode: int, max_episodes: int):
+        if (
+            self.lr_schedule
+            and self.lr_index < len(self.lr_schedule)
+            and episode > self.lr_schedule[self.lr_index][0] * max_episodes
+        ):
+            print("debug: updating LR")
+            lr_actor, lr_critic = self.lr_schedule[self.lr_index][1]
+            self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr_actor)
+            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_critic)
+            self.lr_index += 1
 
     def decide(self, state: Tensor):
         """
@@ -195,63 +222,82 @@ class NewAgent(Agent):
             reward: Computed reward value
         """
         # Extract important state information
-        speed, heading = state[:2] * torch.tensor([self.max_accel, self.max_turn_rate])
-        sensor_data = state[2:] * 200  # Sensor readings
+
+        state_speed, state_heading, wp_heading = state[:3]
+        state_sensor = state[3:]  # Sensor readings
+
+        speed_mph = state_speed * self.max_speed
+        heading_abs = state_heading * np.pi
+        sensor_data = state_sensor * self.max_sense_dist
 
         # Base reward for staying in lane
         reward = 0.0
 
         if not in_lane:
             # Heavy penalty for leaving the lane
-            reward -= 10.0
+            reward -= 50.0
             return reward
 
         if not in_motion:
             # Penalty for stopping
-            reward -= 10.0
+            reward -= 50.0
             return reward
 
+        # v1: [cos(hd), sin(hd)], v2: [cos(whd), sin(whd)]
+
+        angle_from_wp = np.acos(
+            np.array([np.cos(heading_abs), np.sin(heading_abs)]).dot(
+                np.array([np.cos(wp_heading), np.sin(wp_heading)])
+            )
+        )
+        if angle_from_wp > 0.9 * np.pi:
+            angle_reward = -10
+        else:
+            angle_reward = 15 * (1 - angle_from_wp / self.WP_MAX_ANGLE)
+
+        reward += angle_reward
+
         # Reward for speed - encourage moderate speeds
-        speed_reward = (speed - 10) if speed > 10 else -10
+        speed_reward = 30 * state_speed if speed_mph >= 15 else -10
         reward += speed_reward
 
         # Reward for staying in the center of the lane
         # Use sensor readings to determine distance from center
         # Assuming sensors are arranged symmetrically with center sensor at index len(sensor_data)//2
         center_index = len(sensor_data) // 2
-        center_distance = sensor_data[center_index]
-
         # Higher reward for staying in the center
-        center_reward = 20.0 * (center_distance / 200)
+        center_reward = 20.0 * state_sensor[center_index]
+
         reward += center_reward
 
         # Penalty for being close to the edges
         edge_penalty = 0.0
         min_sensor_reading = torch.min(sensor_data)
         # print("min sense", min_sensor_reading)
-        if min_sensor_reading < 3:  # If any sensor reading is less than 20 units
-            edge_penalty = -10.0 * (1.0 - min_sensor_reading / 3.0)
+        if min_sensor_reading < 2:  # If any sensor reading is less than 20 units
+            edge_penalty = -30.0 * (1.0 - min_sensor_reading / 2.0)
         reward += edge_penalty
 
         # Small penalty for extreme steering or acceleration to encourage smooth driving
         if hasattr(self, "last_action") and self.last_action is not None:
-            action_penalty = -2.0 * torch.sum(torch.abs(self.last_action))
+            action_penalty = -10.0 * torch.sum(torch.abs(self.last_action))
             reward += action_penalty.item()
 
-        # print("speed, center dist, edge, action")
-        # print(speed)
-        # print("Rewards:")
-        # print(
-        #     speed_reward,
-        #     center_reward.item(),
-        #     edge_penalty,
-        #     action_penalty.item(),
-        # )
+        if self.debug:
+            print("speed, center dist, edge, action, angle")
+            print("Rewards:")
+            print(
+                speed_reward,
+                center_reward.item(),
+                edge_penalty,
+                action_penalty.item(),
+                angle_reward,
+            )
 
-        # print("Final reward", reward)
+            print("Final reward", reward)
         return reward
 
-    def train_step(self, state, action, reward, done):
+    def train_step(self, prev_state, action, reward, next_state, done):
         """
         Train the agent using the provided experience.
 
@@ -261,12 +307,8 @@ class NewAgent(Agent):
             reward: Reward received
             done: Whether the episode is done
         """
-        # Calculate next state by taking a step in the environment
-        # In this case, we're using the actual next state from the simulation
-        next_state = self.last_state  # This is actually the current state
-
         # Store experience in replay buffer
-        self.memory.push(state, action, reward, next_state, done)
+        self.memory.push(prev_state, action, reward, next_state, done)
 
         # Don't train until we have enough samples
         if len(self.memory) < self.batch_size:

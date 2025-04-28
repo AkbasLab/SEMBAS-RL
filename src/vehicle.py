@@ -16,7 +16,7 @@ class Vehicle:
         self,
         vehicle_length_ft: float = 10,
         vehicle_width_ft: float = 6,
-        min_speed_mph: float = 0.0,
+        min_speed_mph: float = 50,
         max_speed_mph: float = 150.0,
         sec_0_to_60: float = 8.0,
         max_acceleration=None,
@@ -128,7 +128,9 @@ class Vehicle:
             torch.Tensor: Tensor containing x, y values of the direction vector
         """
         angle = angle or self.abs_heading
-        return torch.tensor([np.cos(float(angle)), np.sin(float(angle))])
+        return torch.tensor(
+            [np.cos(float(angle)), np.sin(float(angle))], dtype=torch.float32
+        )
 
     def get_heading_point(self, angle: float = None) -> Point:
         """Returns the point of the center point of the vehicle updated by the directional vector.
@@ -155,7 +157,7 @@ class Vehicle:
     #     return direction * self.speed_fps
 
     def update_position(
-        self, steering_rad: float, acceleration_mph2: float, dt_sec: float
+        self, steering_rad: float, acceleration_fps2: float, dt_sec: float
     ):  # Tested as of 3/31/2025
         """Updates the position of the vehicle based on the steering, acceleration and time step.
 
@@ -168,13 +170,14 @@ class Vehicle:
         """
         # Updating acceleration by clipping by the vehicle max breaking and acceleration capabilities
         self.acceleration_fps2 = np.clip(
-            self.mph2_to_fps2(float(acceleration_mph2)),
+            acceleration_fps2,
             -float(self.max_breaking_fps2),
             float(self.max_acceleration_fps2),
         )
 
         # v = vo + a t
-        new_speed = self.speed_fps + (self.acceleration_fps2 * dt_sec)
+        dv = self.acceleration_fps2 * dt_sec
+        new_speed = self.speed_fps + dv
 
         # Update speed based on acceleration and clipping based on the vehicles speed capabilities
         new_speed = np.clip(new_speed, self.min_speed_fps, self.max_speed_fps)

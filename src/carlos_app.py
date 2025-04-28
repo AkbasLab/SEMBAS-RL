@@ -30,8 +30,8 @@ carlos_logging.log_message("Carlos App Initialized")
 
 ############# INITIALIZATION PARAMETERS ###############
 LAYOUT_FILE_PATH = "src/layouts/train_layout_5.txt"
-MAX_STEPS = 300
-MAX_EPISODES = 200
+MAX_STEPS = 1000
+MAX_EPISODES = 150
 NUM_SENSORS = 5
 SENSOR_LENGTH = 200.0
 SENSOR_ANGLE_SPREAD = math.pi
@@ -71,10 +71,12 @@ sensor_array = SensorArray(
 # action_dim: int=2, max_accel=5.0, lr_actor=1e-4, lr_critic=1e-3, gamma=0.99
 ACTION_DIM = 2
 MAX_ACCEL = vehicle.max_acceleration_fps2
-LR_ACTOR = 1e-4
-LR_CRITIC = 1e-3
+LR_ACTOR = 1e-3
+LR_CRITIC = 1e-2
 GAMMA = 0.99
-obs_size = NUM_SENSORS + 2  # Number of sensors + 2 for vehicle heading and speed
+obs_size = (
+    NUM_SENSORS + 2 + 1
+)  # Number of sensors + 2 for vehicle heading, speed, and wp_heading
 # agent = SummerAgent(
 #     sensor_array,
 #     obs_dim=obs_size,
@@ -92,10 +94,11 @@ agent = NewAgent(
     obs_dim=obs_size,
     action_dim=ACTION_DIM,
     max_accel=MAX_ACCEL,
-    max_turn_rate=np.pi * 10,
+    max_turn_rate=np.pi * 3,
     lr_actor=LR_ACTOR,
     lr_critic=LR_CRITIC,
     gamma=GAMMA,
+    # lr_schedule=[(0.9, (1e-3, 1e-4))],
 )  # Placeholder for actual agent implementation
 
 #### Simulation Initialization ####
@@ -119,8 +122,13 @@ def elapsed_time(start_time: float) -> float:
 
 #### Sim Execution ####
 def execute_simulation(
-    sim: Simulation, train: bool = True, render: bool = False
+    sim: Simulation,
+    train: bool = True,
+    render: bool = False,
+    debug=False,
+    num_episodes=MAX_EPISODES,
 ) -> list[float]:
+    last_action_log = []
     loss_log = []
     reward_log = []
     step_count_log = []
@@ -130,7 +138,7 @@ def execute_simulation(
 
     state_log = []
 
-    for episode in range(MAX_EPISODES):
+    for episode in range(num_episodes):
         has_valid = False
         while not has_valid:
             sim.sim_random_reset()
@@ -140,14 +148,19 @@ def execute_simulation(
         total_reward = 0
         done = False
         steps = 0
-        sim.agent.update_expl_noise(episode, MAX_EPISODES)
+        sim.agent.update_expl_noise(episode, num_episodes)
+        sim.agent.update_lr(episode, num_episodes)
 
         losses = [0, 0]
+        actor_loss, critic_loss = None, None
 
         # state = sim.get_state()
+        last_action_log = []
         while not done and steps < MAX_STEPS:
             # Get action + step simulation
-            state, action, reward = sim.sim_step()
+            state, action, reward, next_state = sim.sim_step(debug=debug)
+            last_action_log.append(action)
+
             # print(action)
             # print(state)
 
@@ -158,7 +171,7 @@ def execute_simulation(
             # Train agent
             if train:
                 actor_loss, critic_loss = sim.agent.train_step(
-                    state, action, reward, done
+                    state, action, reward, next_state, done
                 )
                 if actor_loss is not None:
                     losses[0] += actor_loss
@@ -168,6 +181,9 @@ def execute_simulation(
                 graphics.show()
                 input()
 
+            if debug:
+                print("Reward, act-l, crit-l:", reward, actor_loss, critic_loss)
+
             total_reward += reward
             steps += 1
 
@@ -175,10 +191,10 @@ def execute_simulation(
         step_count_log.append(steps)
         reward_log.append(total_reward)
         carlos_logging.log_message(
-            f"[{elapsed_time(start_time)}] | Episode {episode+1}/{MAX_EPISODES} | Total Reward: {total_reward:.2f} | Steps: {steps}"
+            f"[{elapsed_time(start_time)}] | Episode {episode+1}/{num_episodes} | Total Reward: {total_reward:.2f} | Steps: {steps}"
         )
 
-    return reward_log, step_count_log, state_log, loss_log
+    return reward_log, step_count_log, state_log, loss_log, last_action_log
 
 
 def plot_rewards(reward_log, window=50):
@@ -204,9 +220,40 @@ print("before")
 print(sim.agent.actor.fc1.weight)
 
 print("training")
-reward_log, step_count_log, state_log, loss_log = execute_simulation(
-    sim=sim, render=False, train=True
-)
+import numpy as np
+
+try:
+    reward_log, step_count_log, state_log, loss_log, last_action_log = (
+        execute_simulation(sim=sim, render=False, train=True, debug=False)
+    )
+    # reward_log, step_count_log, state_log, loss_log, last_action_log = (
+    #     execute_simulation(sim=sim, render=True, train=True, debug=False)
+    # )
+
+    actor_loss, critic_loss = zip(*loss_log)
+
+    fig, (axl, axm, axr) = plt.subplots(1, 3)
+    fig.tight_layout()
+
+    axl.set_title("loss")
+    axl.set_xlabel("episode")
+    axl.set_ylabel("loss")
+    axl.plot(np.arange(len(actor_loss)), actor_loss)
+    axl.plot(np.arange(len(critic_loss)), critic_loss)
+
+    axm.set_title("reward")
+    axm.set_xlabel("episode")
+    axm.set_ylabel("reward")
+    axm.plot(np.arange(len(reward_log)), reward_log)
+
+    axr.set_title("step count")
+    axr.set_xlabel("episode")
+    axr.set_ylabel("step count")
+    axr.plot(np.arange(len(step_count_log)), step_count_log)
+    plt.show()
+
+except KeyboardInterrupt:
+    print("Canceling run")
 # reward_log, step_count_log, state_log = execute_simulation(
 #     sim=sim, render=False, train=True
 # )
@@ -215,23 +262,46 @@ print("after")
 print(agent.actor.fc1.weight)
 
 # print("done")
-import numpy as np
-
-actor_loss, critic_loss = zip(*loss_log)
-
-plt.plot(np.arange(len(actor_loss)), actor_loss)
-plt.plot(np.arange(len(critic_loss)), critic_loss)
-plt.show()
-plt.plot(np.arange(len(reward_log)), reward_log)
-plt.show()
-plt.plot(np.arange(len(step_count_log)), step_count_log)
-plt.show()
-
+sim.agent.debug = True
 # graphics.render_simulation(sim=sim)
 # graphics.show()
-reward_log, step_count_log, state_log = execute_simulation(
-    sim=sim, train=False, render=True
-)
+while True:
+    try:
+        reward_log, step_count_log, state_log, loss_log, last_action_log = (
+            execute_simulation(
+                sim=sim,
+                train=False,
+                render=True,
+                debug=True,
+                num_episodes=1,
+            )
+        )
+
+    except KeyboardInterrupt:
+        print("Canceling run")
+
+    steering, acceleration = zip(*last_action_log)
+
+    acceleration = np.array(acceleration)
+    steering = np.array(steering) * 180 / np.pi
+
+    print("Steering:", steering.min(), steering.max())
+    print("Accel:", acceleration.min(), acceleration.max())
+
+    fig, (axl, axr) = plt.subplots(1, 2)
+
+    axl.set_title("Steer Action")
+    axl.set_xlabel("step")
+    axl.set_ylabel("steering (deg)")
+    axl.plot(np.arange(len(steering)), steering)
+
+    axr.set_title("Acceleration Action")
+    axr.set_xlabel("step")
+    axr.set_ylabel("acceleration")
+    axr.plot(np.arange(len(acceleration)), acceleration)
+
+    plt.show()
+
 # while True:
 #     sim.sim_step()
 #     graphics.show()

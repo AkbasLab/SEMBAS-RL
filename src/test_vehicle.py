@@ -12,7 +12,7 @@ def test_going_left():
     accel = 0.0
     dt = 1.0
     steering = np.pi / 2  # complete left turn 90 degrees
-    v.update_position(steering_rad=steering, acceleration_mph2=accel, dt_sec=dt)
+    v.update_position(steering_rad=steering, acceleration_fps2=accel, dt_sec=dt)
     heading_point = v.get_heading_point()
     assert (
         round(heading_point.x, 6) == -1  # * v.heading_offset_ft
@@ -32,7 +32,7 @@ def test_going_right():
     accel = 0.0
     dt = 1.0
     steering = -np.pi / 2  # complete left turn 90 degrees
-    v.update_position(steering_rad=steering, acceleration_mph2=accel, dt_sec=dt)
+    v.update_position(steering_rad=steering, acceleration_fps2=accel, dt_sec=dt)
     heading_point = v.get_heading_point()
     assert (
         round(heading_point.x, 6) == 1
@@ -52,7 +52,7 @@ def test_going_straight():
     # 0 to 60 mph in 8 seconds should be: 27000 mph
     accel = 27000.0
     dt = 8.0
-    v.update_position(steering_rad=0.0, acceleration_mph2=accel, dt_sec=dt)
+    v.update_position(steering_rad=0.0, acceleration_fps2=accel, dt_sec=dt)
     # print(v.vehicle_state_str())
     assert (
         round(v.center_point.x, 6) == 0
@@ -75,7 +75,7 @@ def test_breaking():
     v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
     accel = -1000
     dt = 5.0
-    v.update_position(steering_rad=0.0, acceleration_mph2=accel, dt_sec=dt)
+    v.update_position(steering_rad=0.0, acceleration_fps2=accel, dt_sec=dt)
     # print(v.vehicle_state_str())
     assert v.speed_mph < speed, "Vehicle should have slowed down."
     print("Vehicle Test: Vehicle breaking PASSED.")

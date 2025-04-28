@@ -10,6 +10,8 @@ import numpy as np
 
 
 class Simulation:
+    WP_MIN_DIST_FACTOR = 1.25
+
     def __init__(
         self, vehicle: Vehicle, environment: Environment, agent: Agent, dt: float = 0.1
     ):
@@ -25,7 +27,31 @@ class Simulation:
         self.environment = environment
         self.agent = agent
         self.dt = dt
+        self._wp_index = None
+        self._wp_dir = None
+
         self.reset_sim_status()
+
+    def _get_initial_wp_index(self):
+        i = self.environment.lane.nearest_neighbor(self.vehicle.center_point)
+        lp = self.environment.lane.control_points[i]
+        s = lp.to_tensor() - self.vehicle.center_point.to_tensor()
+
+        is_ahead = self.vehicle.get_direction_vector().dot(s) >= 0
+
+        num_points = len(self.environment.lane.control_points)
+
+        j = (i + 1) % num_points
+        lp_nxt_hyp = self.environment.lane.control_points[j]
+        s = lp_nxt_hyp.to_tensor() - self.vehicle.center_point.to_tensor()
+        is_fwd = self.vehicle.get_direction_vector().dot(s) >= 0
+
+        if is_ahead:
+            index = i
+        else:
+            index = (i + (1 if is_fwd else -1)) % num_points
+
+        return index, is_fwd
 
     def reset_sim_status(self) -> None:
         """Resets the simulation status."""
@@ -52,6 +78,9 @@ class Simulation:
             angle_offset=dir_angle_offset,
         )
         self.vehicle.vehicle_setup(center_point, heading, speed)
+        self._wp_index, is_fwd = self._get_initial_wp_index()
+        self._wp_dir = 1 if is_fwd else -1
+
         self.agent.sensors.update_sensors(
             self.vehicle.center_point, self.vehicle.abs_heading
         )
@@ -69,27 +98,52 @@ class Simulation:
         self.vehicle.vehicle_setup(
             center_point=center_point, abs_heading=heading, speed_mph=speed
         )
+        self._wp_index, is_fwd = self._get_initial_wp_index()
+        self._wp_dir = 1 if is_fwd else -1
+
         self.agent.sensors.update_sensors(
             self.vehicle.center_point, self.vehicle.abs_heading
         )
 
+    def get_next_waypoint(self):
+        distance = self.vehicle.center_point.distanceTo(
+            self.environment.lane.control_points[self._wp_index]
+        )
+        if distance <= self.environment.lane.lane_width * self.WP_MIN_DIST_FACTOR:
+            self._wp_index = (self._wp_index + self._wp_dir) % len(
+                self.environment.lane.control_points
+            )
+
+        return self.environment.lane.control_points[self._wp_index]
+
+    def calc_wp_heading(self, wp: Point) -> float:
+        sp = wp - self.vehicle.center_point
+
+        return np.atan2(sp.y, sp.x)
+
     def get_state(self) -> Tensor:
         """
         Returns the current state of the simulation, including the vehicle's heading, speed, and the sensor data.
-        speed, heading, *sensor_data
+        speed, heading, waypoint_heading, *sensor_data
+
+        Waypoints are the control points of the lane. The vehicle will be guided to these points to help improve
+        training to avoid circling behavior.
         """
         _, sensor_data = self.agent.sensors.sense(self.environment, self.vehicle)
+        wp = self.get_next_waypoint()
+        wp_heading = self.calc_wp_heading(wp)
         return torch.tensor(
             [
                 self.vehicle.speed_mph
                 / self.vehicle.fps_to_mph(self.vehicle.max_speed_fps),
                 self.vehicle.abs_heading / np.pi,
+                wp_heading,  # TODO : try with and without WP heading in state vector
                 *(torch.tensor(sensor_data) / 200.0),
             ],
             dtype=torch.float32,
         )
 
-    def sim_step(self):
+    def sim_step(self, debug=False):
         """Executes a single step in the simulation.
         1. Gets the current state of the simulation.
         2. Gets the action from the agent based on the current state.
@@ -107,6 +161,11 @@ class Simulation:
 
         steering, acceleration = action[0], action[1]
 
+        if debug:
+            print("Prev steer and acc", state[:2])
+            print("Steer and acc", steering, acceleration)
+            print("Sensors", state[2:])
+
         self.vehicle.update_position(steering, acceleration, self.dt)
 
         self.agent.sensors.update_sensors(
@@ -115,13 +174,13 @@ class Simulation:
 
         self.update_sim_status()
 
+        next_state = self.get_state()
         reward = self.agent.compute_reward(
-            self.get_state(),
+            next_state,
             in_lane=self.vehicle_in_lane,
             in_motion=self.vehicle_in_motion,
         )
-        # print(f"reward {reward}")
-        return state, action, reward
+        return state, action, reward, next_state
 
     def update_sim_status(self) -> None:
         """
