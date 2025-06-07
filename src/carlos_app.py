@@ -88,7 +88,6 @@ obs_size = (
 # )  # Placeholder for actual agent implementation
 
 # agent = NewAgent(sensor_array)
-
 agent = NewAgent(
     sensor_array,
     obs_dim=obs_size,
