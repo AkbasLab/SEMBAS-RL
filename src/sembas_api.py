@@ -70,18 +70,21 @@ def send_response(client: socket.socket, cls: bool):
 
 def send_message(client: socket.socket, msg: str):
     print(f"Sending msg {msg}")
-    f = client.makefile("w")
-    f.writelines([f"{msg}\n"])
-    f.flush()
-    f.close()
+    data = f"{msg}\n".encode("utf-8")
+    client.sendall(data)
 
 
 def receive_message(client: socket.socket) -> str:
-    f = client.makefile("r")
-    msg = f.readline()[:-1]
-    f.close()
-    print(f"Receiving msg {msg}")
-    return msg  # remove ending \n
+    buffer = bytearray()
+    while True:
+        chunk = client.recv(1)
+        if not chunk:
+            raise ConnectionError("Socket closed while reading message")
+        if chunk == b"\n":
+            break
+
+        buffer.extend(chunk)
+    return buffer.decode("utf-8")
 
 
 class SembasSession:
