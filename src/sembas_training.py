@@ -713,12 +713,26 @@ def watch(sim: Simulation, max_episodes: int = None):
 
 import traceback
 
+
 if __name__ == "__main__":
     # init_crit_step_c = 75
-    init_crit_step_c = 25
+    init_crit_step_c = 30
     # session = sembas_training(100, 500, init_crit_step_c)
     try:
-        rewards, steps = sembas_training(100, 500, init_crit_step_c)
+        rewards, steps = sembas_training(25, init_crit_step_c, 10, plot_samples=True)
+        print(rewards)
+        print(steps)
+
+        print("Showing test results")
+        rlog, slog = perf_test(sim, 50)
+
+        fig, ax = plt.subplots()
+        ax.plot(np.linspace(0, len(slog)), slog)
+        ax.set_xlabel("Episode")
+        ax.set_ylabel("Num Steps")
+
+        plt.show()
+
     except KeyboardInterrupt:
         print("ending early.")
     except Exception as e:
