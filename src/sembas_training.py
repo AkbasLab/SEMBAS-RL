@@ -345,6 +345,57 @@ def train_batch(agent: NewAgent, episodic_train_data):
     return reward_log, step_log
 
 
+def rerun_and_train(sim: Simulation, requests: list[torch.Tensor]):
+    """
+    Trains the agent with an initial amount of random experience to
+    establish an initial region of competence.
+    """
+    print("Rerunning and training over boundary")
+    num_steps = 0
+
+    agent: NewAgent = sim.agent
+
+    reward_log = []
+    step_log = []
+
+    for x in requests:
+        # longitude: float, latitude: float, dir_angle_offset: float, speed: float
+        # sim.sim_random_reset()
+        agent.update_expl_noise(0, len(requests))
+
+        # scale
+        sim.sim_reset(x[0], 0.5, x[1], 45)
+        # sim.sim_reset(*x)
+
+        sim.update_sim_status()
+        is_valid = sim.get_sim_status()[1]
+        if not is_valid:
+            continue
+
+        done = False
+        steps = 0
+        running_reward = 0
+
+        # run episode
+        while not done and steps < MAX_STEPS:
+            state, action, reward, next_state = sim.sim_step()
+            running_reward += reward
+
+            sim.update_sim_status()
+            _, in_lane, in_motion = sim.get_sim_status()
+            done = not in_lane or not in_motion
+
+            sim.agent.train_step(state, action, reward, next_state, done)
+
+            num_steps += 1
+            steps += 1
+
+        reward_log.append(running_reward.item())
+        step_log.append(steps)
+
+    return reward_log, step_log
+
+
 def run_until_phase(
     session: api.SembasSession, sim: Simulation, crit_step_c: int, target_phase: str
 ) -> dict[str, list[tuple[tuple, bool]]]:
