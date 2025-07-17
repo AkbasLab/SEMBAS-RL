@@ -335,7 +335,6 @@ def train_batch(agent: NewAgent, episodic_train_data):
     for ep_data in episodic_train_data:
         running_reward = 0
         for x in ep_data:
-            print(x)
             running_reward += x[2]
             agent.train_step(*x)
 

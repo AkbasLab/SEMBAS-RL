@@ -98,7 +98,9 @@ class NewAgent(Agent):
         tau=0.001,
         buffer_size=10000,
         batch_size=256,
-        exploration_noise=0.1,
+        exploration_noise=0.0,
+        min_exploration_noise=0.1,
+        max_exploration_noise=0.3,
         lr_schedule: list[tuple[float, tuple[float, float]]] = None,
         debug=False,
     ):
@@ -130,6 +132,8 @@ class NewAgent(Agent):
         self.gamma = gamma
         self.tau = tau
         self.batch_size = batch_size
+        self.min_exploration_noise = min_exploration_noise
+        self.max_exploration_noise = max_exploration_noise
         self.exploration_noise = exploration_noise
         self.lr_schedule = (
             sorted(lr_schedule, key=lambda x: x[0]) if lr_schedule else None
@@ -163,7 +167,10 @@ class NewAgent(Agent):
         carlos_logging.log_message("NewAgent initialized")
 
     def update_expl_noise(self, episode: int, max_episodes: int):
-        self.exploration_noise = max(0.1, 0.3 * (1 - episode / max_episodes))
+        self.exploration_noise = max(
+            self.min_exploration_noise,
+            self.max_exploration_noise * (1 - episode / max_episodes),
+        )
 
     def update_lr(self, episode: int, max_episodes: int):
         if (
