@@ -641,6 +641,42 @@ def test(crit_step_c: int, group_size: int = 10, num_samples=None):
     return reward_log, step_log
 
 
+def perf_test(sim: Simulation, num_episodes: int, max_steps=MAX_STEPS):
+    # get enough data to fill memory and begin training ~ episodes
+    warmup(sim, sim.agent.batch_size + 25 * EST_STEPS_PER_EP)
+    reward_log = []
+    step_log = []
+
+    for i in range(num_episodes):
+        has_valid = False
+        while not has_valid:
+            sim.sim_random_reset()
+            sim.update_sim_status()
+            has_valid = sim.get_sim_status()[1]
+
+        running_reward = 0
+        done = False
+        steps = 0
+
+        # run episode
+        while not done and steps < max_steps:
+            # Get action + step simulation
+            state, action, reward, next_state = sim.sim_step()
+
+            # Check status
+            sim.update_sim_status()
+            _, in_lane, in_motion = sim.get_sim_status()
+            done = not in_lane or not in_motion
+
+            reward += reward
+            steps += 1
+
+        reward_log.append(running_reward)
+        step_log.append(steps)
+
+    return reward_log, step_log
+
+
 def watch(sim: Simulation, max_episodes: int = None):
     """
     Trains the agent with an initial amount of random experience to
