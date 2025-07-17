@@ -520,10 +520,13 @@ def sembas_reacquisition(
     return new_train_data
 
 
-def sembas_training(batch_size: int, num_episodes: int, crit_step_c: int):
+def sembas_training(
+    batch_size: int, crit_step_c: int, num_iterations: int = None, plot_samples=False
+):
     print("Setting up connection...")
     # client = api.setup_socket(4)
-    session = api.SembasSession([SIM_LOW, SIM_HIGH], plot_samples=True)
+    session = api.SembasSession([SIM_LOW, SIM_HIGH], plot_samples=plot_samples)
+
     reward_log = []
     step_log = []
     # get enough data to fill memory and begin training ~ episodes
@@ -531,29 +534,61 @@ def sembas_training(batch_size: int, num_episodes: int, crit_step_c: int):
     warmup(sim, target_step_c=crit_step_c)
     sim.agent.save(".models/warmup/warmup.model")
 
-    plt.pause(0.01)
-    input("Press enter to continue")
+    # plt.pause(0.01)
 
     # Get through the phases
     # while session.phase != api.SembasSession.PHASE_BOUNDARY_EXPL:
-    print("Running until boundary exploration...")
-    run_until_phase(session, sim, crit_step_c, api.SembasSession.PHASE_BOUNDARY_EXPL)
 
-    print("Beginning boundary training")
-    i = 0
     training_batch = []
-    while i < num_episodes:
-        x, cls, train_data = run_sembas_episode(session, sim, crit_step_c)
-        training_batch.append(train_data)
-        if len(training_batch) > batch_size:
-            ep_rewards, ep_steps = train_batch(sim.agent, training_batch)
-            reward_log.extend(ep_rewards)
-            step_log.extend(ep_steps)
-            training_batch = []
+    requests = []
 
-            print("Pre")
-            sembas_reacquisition(session, sim, crit_step_c)
-            print("Post")
+    process = "NewSearch"
+    input("Press enter to continue")
+    i = 0
+    try:
+        while num_iterations is None or i < num_iterations:
+            match process:
+                case "NewSearch":
+                    print("New search...")
+                    run_until_phase(
+                        session, sim, crit_step_c, api.SembasSession.PHASE_BOUNDARY_EXPL
+                    )
+                    process = "BE"
+
+                case "BE":
+                    if session.expect_phase() == api.SembasSession.PHASE_BOUNDARY_EXPL:
+                        x, cls, train_data = run_sembas_episode(
+                            session, sim, crit_step_c
+                        )
+                        requests.append(x)
+                        training_batch.append(train_data)
+                        if len(training_batch) > batch_size:
+                            process = "Training"
+                    else:
+                        print(
+                            f"Phase change to {session.expect_phase()}, assuming boundary complete. Starting new search."
+                        )
+                        process = "NewSearch"
+
+                case "Training":
+                    print("Training")
+                    ep_rewards, ep_steps = rerun_and_train(sim, requests)
+                    reward_log.extend(ep_rewards)
+                    step_log.extend(ep_steps)
+
+                    # session._ax.clear()
+
+                    training_batch = []
+                    requests = []
+
+                    sembas_reacquisition(session, sim, crit_step_c)
+                    process = "BE"
+                    i += 1
+
+    except KeyboardInterrupt:
+        print("Ending training")
+    finally:
+        sim.agent.save()
 
     return reward_log, step_log
 
