@@ -329,6 +329,7 @@ def warmup(
 
 
 def train_batch(agent: NewAgent, episodic_train_data):
+    print("Training batch")
     reward_log = []
     step_log = []
     for ep_data in episodic_train_data:
