@@ -159,6 +159,7 @@ class Simulation:
         state = self.get_state()
         action = self.agent.decide(state)
 
+        action = self.agent.decide(state)
         steering, acceleration = action[0], action[1]
 
         if debug:

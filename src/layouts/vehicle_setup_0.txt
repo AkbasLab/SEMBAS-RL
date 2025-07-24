@@ -1,0 +1,7 @@
+longitude:0.82
+latitude:0.5
+angle_offset:0.0
+speed:0.0
+num_sensors:5
+sensor_length:100
+sensor_angle_spread:0.39

@@ -152,6 +152,10 @@ def sensor_tests():
 def test_graphics():
     env = test_init_environment()
     vehicle = test_init_vehicle()
+    vehicle.vehicle_setup(
+        center_point=env.lane.center_line[0], heading=math.pi / 4, speed_mph=10.0
+    )
+
     sensor_array = test_init_sensor_array()
     graphics.plot_environment(env)  # Plot the environment
     graphics.plot_vehicle(vehicle)  # Plot the vehicle
@@ -161,7 +165,11 @@ def test_graphics():
     # print(f"center: {vehicle.center_point.values()}, heading: {vehicle.heading_point.values()}")
     # print([s.angle_offset for s in sensor_array.sensors])
     graphics.plot_sensors(sensor_array)
-    graphics.show_without_pause(title="Graphics Test")  # Show the plot
+    pts, dists = sensor_array.sense(env, vehicle)  # Get sensor detections
+    graphics.plot_sensor_detections(pts, dists)  # Plot sensor detections
+    graphics.show_without_pause(
+        title="Render Example", x_lim=[50, 250], y_lim=[150, 350]
+    )  # Show the plot
     print("App Test: Graphics test NEEDS VISUAL CONFIRMATION.")
 
 
@@ -187,3 +195,4 @@ def run_all_tests():
 if __name__ == "__main__":
     # initialization_tests()
     run_all_tests()
+    # test_graphics()

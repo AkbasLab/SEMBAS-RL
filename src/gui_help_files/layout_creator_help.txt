@@ -1,0 +1,88 @@
+On the left, you'll find a plot where you are able to view and edit your layout
+On the right, you'll find a log space at the top, and various buttons and check boxes for creating your layout
+
+$"Add Control Points" Button
+Left click on the plot to add control points.
+
+Points will be used to create Cubic Splines for the center and edges of the lane.
+
+Points will show on the plot as red points with a number corresponding to where they fall in the list of points.
+
+They will be attached with a red line to show a rough estimate of where the lane may be.
+
+$"Select Mode" Button
+This button allows you to select a point by left clicking on the desired point.
+
+Drag and drop to move the point. 
+
+After the point is selected, it will appear blue on the graph.
+
+If you selected a point, you can use the "Remove Point" button.
+
+$"Remove Point" Button
+After selecting a point, if you click on this button, it will be removed from the plot.
+
+$"Lane Width" Entry Box
+Use the entry box to the right of the "Lane Width" label to set the width for the lane.
+
+Width defaults to 12.0 feet to match the US average.
+
+$"Legend On" Checkbox
+When checked:
+The legend for the plot will be displayed until unchecked.
+
+$"Closed Loop" Checkbox
+When checked:
+The lane will be one continous lane (circle-like). Meaning, the end of the lane will connect with the start of the lane to create one continous lane.
+
+$"Plot Control Points" Checkbox
+When checked:
+- The control points for the lane will be displayed as green points connected by a line.
+
+$"Plot Lane" Button
+Click this button to view what the lane will look like. 
+
+This can be done at any time.
+
+Click "Select Mode" to go back to edit mode. Or select one of the other buttons and interact with the plot.
+
+Before or while the lane is being shown, you can choose any of the checkbox options, refresh by clicking the "Plot Lane" button again.
+
+$"Save/Load Layout" Buttons
+Choosing either option will open a file dialog box.
+- Saving will allow you to save the current layout on the plot under a named text file wherever you desire.
+- Loading will allow you to load a layout from a chosen text file.
+
+If the plot is empty, nothing will be saved.
+If you select a text file that does not have a layout saved in the correct format, it will not be loaded.
+
+Text file contains the following in this order:
+=============================================================================
+Closed Loop Flag (boolean) -- Format: L:True or False
+Lane width ------------------ Format: W:w
+Control points -------------- Format: P:x,y
+=============================================================================
+
+Example file:
+=============================================================================
+L:True
+W:12.0000000
+P:77.86784691987589,273.84311258873214
+P:93.8012652442691,265.43265342798094
+=============================================================================
+
+$"Reset Canvas/Log" and "Clear Log" Buttons
+"Reset Canvas/Log" will clear everything on the plot and in the log.
+Note: If you are currently looking at the plotted lane, you'll need to click on the plot to see the changes.
+
+"Clear Log" will clear everything in the log.
+
+$Log Space
+Log will be automatically added to when actions are taken.
+
+Errors will be shown when necessary.
+
+$Plot Space
+Plot is defaulted to 400 by 400 feet.
+
+Lane width is defaulted to 12 feet to match average lane width in US.

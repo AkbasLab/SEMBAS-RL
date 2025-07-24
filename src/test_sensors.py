@@ -51,7 +51,7 @@ def test_sense():
     points, distances = sa.sense(env, vehicle=vehicle)
     assert distances[0] == 6.0, "First sensor distance should be 6.0."
     assert distances[4] == 6.0, "Last sensor distance should be 6.0."
-    assert distances[2] == -1.0, "Middle sensor distance should be -1.0."
+    assert distances[2] == 50, "Middle sensor distance should be 50.0."
     # print(distances)
     graphics.plot_environment(env)
     graphics.plot_vehicle(vehicle)

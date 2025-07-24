@@ -1,6 +1,7 @@
 from point import Point
 from sensor import Sensor
 from lane import Lane
+import numpy as np
 
 
 def get_lane_detection(sensor: Sensor, lane: Lane) -> float:
@@ -17,44 +18,22 @@ def get_lane_detection(sensor: Sensor, lane: Lane) -> float:
     right_edge_point, right_edge_intersection = intersections_on_line_segment(
         lane.right_edge, sensor.origin_point, sensor.end_point
     )
+    right = (
+        right_edge_intersection
+        if right_edge_intersection != -1
+        else sensor.sensor_length
+    )
     left_edge_point, left_edge_intersection = intersections_on_line_segment(
         lane.left_edge, sensor.origin_point, sensor.end_point
     )
+    left = (
+        left_edge_intersection if left_edge_intersection != -1 else sensor.sensor_length
+    )
+    pts = [right_edge_point, left_edge_point]
+    intersects = [right, left]
+    idx = np.argmin(intersects)
 
-    closest_point = None
-    intersection = None
-    if right_edge_intersection == -1.0:
-        intersection = left_edge_intersection
-        closest_point = left_edge_point if intersection != -1.0 else None
-    elif left_edge_intersection == -1.0:
-        intersection = right_edge_intersection
-        closest_point = right_edge_point
-    elif right_edge_intersection <= left_edge_intersection:
-        intersection = right_edge_intersection
-        closest_point = right_edge_point
-    else:
-        intersection = left_edge_intersection
-        closest_point = left_edge_point
-    # if right_edge_intersection == -1.0 and left_edge_intersection == -1.0:
-    #     intersection = -1.0
-    #     closest_point = None
-    # elif right_edge_intersection == -1.0 and left_edge_intersection != -1.0:
-    #     intersection = left_edge_intersection
-    #     closest_point = left_edge_point
-    # elif right_edge_intersection != -1.0 and left_edge_intersection == -1.0:
-    #     intersection = right_edge_intersection
-    #     closest_point = right_edge_point
-    # elif right_edge_intersection <= left_edge_intersection:
-    #     intersection = right_edge_intersection
-    #     closest_point = right_edge_point
-    # else:
-    #     intersection = left_edge_intersection
-    #     closest_point = left_edge_point
-
-    if intersection == -1:
-        intersection = sensor.sensor_length
-
-    return closest_point, intersection
+    return pts[idx], intersects[idx]
 
 
 def intersections_on_line_segment(pt_list: list[Point], pt1: Point, pt2: Point):

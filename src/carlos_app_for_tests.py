@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import graphics
 import numpy as np
 
+from presentation_agent import PresentationAgent
+
 
 # Creating Log
 def init_log(file_path: str = None):
@@ -29,27 +31,39 @@ init_log()
 carlos_logging.log_message("Carlos App Initialized")
 
 ############# INITIALIZATION PARAMETERS ###############
-LAYOUT_FILE_PATH = "src/layouts/train_layout_5.txt"
-MAX_STEPS = 1000
-MAX_EPISODES = 150
-NUM_SENSORS = 5
+LAYOUT_FILE_PATH = "./layouts/open_loop_0.txt"
+MAX_STEPS = 200
+MAX_EPISODES = 100  # 500
+NUM_SENSORS = 9
 SENSOR_LENGTH = 200.0
 SENSOR_ANGLE_SPREAD = math.pi
 TIME_STEP_SEC = 0.01  # seconds
 INITIAL_SPEED_MPH = 25.0  # mph
-INITIAL_LONGITUDE = 0.0  # 0 to 1
+INITIAL_LONGITUDE = 0.98  # 0 to 1
 INITIAL_LATITUDE = 0.5  # 0 to 1
 INITIAL_DIR_ANGLE_OFFSET = 0.0  # radians
 
-
+confirm = False
+x_lim = [0, 300]
+y_lim = [0, 300]
 #### Lane Initialization ####
-lane_ctrl_points, lane_width, closed_loop = layout_utils.load_lane_from_file(
-    LAYOUT_FILE_PATH
-)
-print("WIDTH", lane_width)
-lane = Lane(
-    control_points=lane_ctrl_points, lane_width=lane_width, closed_loop=closed_loop
-)
+# while not confirm:
+# lane_ctrl_points, lane_width, closed_loop = layout_utils.load_lane_from_file(
+#     LAYOUT_FILE_PATH
+# )
+lane_ctrl_points = [Point(50, 150), Point(250, 150)]
+lane = Lane(control_points=lane_ctrl_points, lane_width=12, closed_loop=False)
+# graphics.plot_lane(lane)
+# graphics.show_without_pause()
+# confirm = input("Is the lane correct? (y/n): ").strip().lower() == "y"
+# if not confirm:
+#     file = "./layouts/"
+#     file += input("Enter new file name:") + ".txt"
+# else:
+#     x_lim = input("Enter x limits (min, max): ").split(",")
+#     y_lim = input("Enter y limits (min, max): ").split(",")
+
+
 # lane = Lane(
 #     control_points=[Point(50, 350), Point(350, 350)], lane_width=12.0, closed_loop=False
 # )
@@ -74,9 +88,7 @@ MAX_ACCEL = vehicle.max_acceleration_fps2
 LR_ACTOR = 1e-3
 LR_CRITIC = 1e-2
 GAMMA = 0.99
-obs_size = (
-    NUM_SENSORS + 2 + 1
-)  # Number of sensors + 2 for vehicle heading, speed, and wp_heading
+obs_size = NUM_SENSORS + 2  # Number of sensors + 2 for vehicle heading and speed
 # agent = SummerAgent(
 #     sensor_array,
 #     obs_dim=obs_size,
@@ -86,20 +98,8 @@ obs_size = (
 #     lr_critic=LR_CRITIC,
 #     gamma=GAMMA,
 # )  # Placeholder for actual agent implementation
-
+agent = PresentationAgent(sensor_array)
 # agent = NewAgent(sensor_array)
-
-agent = NewAgent(
-    sensor_array,
-    obs_dim=obs_size,
-    action_dim=ACTION_DIM,
-    max_accel=MAX_ACCEL,
-    max_turn_rate=np.pi * 3,
-    lr_actor=LR_ACTOR,
-    lr_critic=LR_CRITIC,
-    gamma=GAMMA,
-    # lr_schedule=[(0.9, (1e-3, 1e-4))],
-)  # Placeholder for actual agent implementation
 
 #### Simulation Initialization ####
 sim = Simulation(vehicle=vehicle, environment=env, agent=agent, dt=TIME_STEP_SEC)
@@ -145,14 +145,19 @@ def execute_simulation(
             sim.update_sim_status()
             has_valid = sim.get_sim_status()[1]
 
+    for episode in range(MAX_EPISODES):
+        sim.sim_random_reset()
+        # sim.sim_reset(
+        #     longitude=INITIAL_LONGITUDE,
+        #     latitude=INITIAL_LATITUDE,
+        #     dir_angle_offset=INITIAL_DIR_ANGLE_OFFSET,
+        #     speed=INITIAL_SPEED_MPH,
+        # )
+
         total_reward = 0
         done = False
         steps = 0
-        sim.agent.update_expl_noise(episode, num_episodes)
-        sim.agent.update_lr(episode, num_episodes)
-
-        losses = [0, 0]
-        actor_loss, critic_loss = None, None
+        speed = sim.vehicle.speed_mph
 
         # state = sim.get_state()
         last_action_log = []
@@ -177,21 +182,33 @@ def execute_simulation(
                     losses[0] += actor_loss
                     losses[1] += critic_loss
             if render:
-                graphics.render_simulation(sim=sim)
-                graphics.show()
-                input()
-
-            if debug:
-                print("Reward, act-l, crit-l:", reward, actor_loss, critic_loss)
+                graphics.render_simulation(
+                    sim=sim,
+                )
+                graphics.show(
+                    title="CARLOS Execution Example",
+                    x_lim=x_lim,
+                    y_lim=y_lim,
+                )
+                # input()
 
             total_reward += reward
             steps += 1
 
-        loss_log.append((losses[0] / len(losses), losses[1] / len(losses)))
+            speed += sim.vehicle.speed_mph
+
+        avg_speed = speed / steps
+
+        # if (episode + 1) % 100 == 0:
+        #     sim.agent.save(tag=f"summer_agent_{episode+1}.pt")
+        #     carlos_logging.log_message(f"Model saved at episode {episode + 1}")
+
         step_count_log.append(steps)
         reward_log.append(total_reward)
         carlos_logging.log_message(
-            f"[{elapsed_time(start_time)}] | Episode {episode+1}/{num_episodes} | Total Reward: {total_reward:.2f} | Steps: {steps}"
+            f"[{elapsed_time(start_time)}] | Episode {episode+1}/{MAX_EPISODES} | "
+            f"Total Reward: {total_reward:.2f} | Steps: {steps} | "
+            f"Distance: {round(sim.vehicle.distance_travelled_ft, 3)} ft | Avg. Speed: {round(avg_speed, 2)} mph"
         )
 
     return reward_log, step_count_log, state_log, loss_log, last_action_log
@@ -216,92 +233,22 @@ def plot_rewards(reward_log, window=50):
     plt.show()
 
 
-print("before")
-print(sim.agent.actor.fc1.weight)
-
 print("training")
-import numpy as np
+while True:
+    reward_log, step_count_log = execute_simulation(sim=sim, train=False, render=True)
 
-try:
-    reward_log, step_count_log, state_log, loss_log, last_action_log = (
-        execute_simulation(sim=sim, render=False, train=True, debug=False)
-    )
-    # reward_log, step_count_log, state_log, loss_log, last_action_log = (
-    #     execute_simulation(sim=sim, render=True, train=True, debug=False)
-    # )
-
-    actor_loss, critic_loss = zip(*loss_log)
-
-    fig, (axl, axm, axr) = plt.subplots(1, 3)
-    fig.tight_layout()
-
-    axl.set_title("loss")
-    axl.set_xlabel("episode")
-    axl.set_ylabel("loss")
-    axl.plot(np.arange(len(actor_loss)), actor_loss)
-    axl.plot(np.arange(len(critic_loss)), critic_loss)
-
-    axm.set_title("reward")
-    axm.set_xlabel("episode")
-    axm.set_ylabel("reward")
-    axm.plot(np.arange(len(reward_log)), reward_log)
-
-    axr.set_title("step count")
-    axr.set_xlabel("episode")
-    axr.set_ylabel("step count")
-    axr.plot(np.arange(len(step_count_log)), step_count_log)
-    plt.show()
-
-except KeyboardInterrupt:
-    print("Canceling run")
-# reward_log, step_count_log, state_log = execute_simulation(
-#     sim=sim, render=False, train=True
-# )
-
-print("after")
-print(agent.actor.fc1.weight)
 
 # print("done")
-sim.agent.debug = True
-# graphics.render_simulation(sim=sim)
-# graphics.show()
-while True:
-    try:
-        reward_log, step_count_log, state_log, loss_log, last_action_log = (
-            execute_simulation(
-                sim=sim,
-                train=False,
-                render=True,
-                debug=True,
-                num_episodes=1,
-            )
-        )
+# import numpy as np
 
-    except KeyboardInterrupt:
-        print("Canceling run")
+# plt.plot(np.arange(len(reward_log)), reward_log)
+# plt.show()
+# plt.plot(np.arange(len(step_count_log)), step_count_log)
+# plt.show()
 
-    steering, acceleration = zip(*last_action_log)
-
-    acceleration = np.array(acceleration)
-    steering = np.array(steering) * 180 / np.pi
-
-    print("Steering:", steering.min(), steering.max())
-    print("Accel:", acceleration.min(), acceleration.max())
-
-    fig, (axl, axr) = plt.subplots(1, 2)
-
-    axl.set_title("Steer Action")
-    axl.set_xlabel("step")
-    axl.set_ylabel("steering (deg)")
-    axl.plot(np.arange(len(steering)), steering)
-
-    axr.set_title("Acceleration Action")
-    axr.set_xlabel("step")
-    axr.set_ylabel("acceleration")
-    axr.plot(np.arange(len(acceleration)), acceleration)
-
-    plt.show()
-
+# # graphics.render_simulation(sim=sim)
+# # graphics.show()
+# reward_log, step_count_log = execute_simulation(sim=sim, train=False, render=True)
 # while True:
 #     sim.sim_step()
 #     graphics.show()

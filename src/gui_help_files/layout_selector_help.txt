@@ -1,0 +1,61 @@
+The selector allows you to view and select layouts to group together in a text file.
+Note: This will only write the layout file names to the text file.
+$Change Directory Button
+The current directory is displayed to the left of this button.
+
+Click on this button to change the directory. 
+
+A file dialog box will pop up and prompt you for a directory.
+
+If you select a directory, the files listed under the "Select Layout File:" label will be refreshed with text files from that directory.
+$"Layout Files" List
+You can select one file at a time.
+
+Select "View Layout" to view the layout in the file.
+Select "Add >>" to add the selected file to the "Selected Files" list
+
+If either of the following happen, an error message will appear on the plot:
+- If you select "Add >>" and there are no files selected.
+- If you select "View Layout" and there are no files selected, OR the file selected is not the correct format.
+  Note: See "Layout Creator Help" page and look under "Load/Save Button" for how files are formated.
+$"Selected Files" List
+You can select more than one file at a time.
+
+Select "<< Remove" to remove files from the list.
+Select "Save Files" to save the list of files to a text file. See "Save Files Button" for more info.
+
+If either of the following happen, an error message will appear on the plot:
+- If you select "<< Remove" and there are no files selected.
+- If you select "Save Files" and there are no files in the list.
+$"Save Files" Button
+If there are no files in the "Selected Files" list, an error message will appear on the plot area and you will not be able to save your non-existant selected files.
+
+If there are files in the list, a file dialog box will open and allow you to save the selected filename, and directory, to a text file.
+
+File Save Format:
+==================================
+Directory --- Format: C:/Dir/Dir
+Files ------- Format: filename.txt
+==================================
+
+Example file named "test_layouts_basic_circles.txt":
+==================================
+C:/Users/User/CARLOS
+test_layout_0.txt
+text_layout_4.txt
+==================================
+$"Add >>" Button
+Select a file in the "Layout Files" list to the "Selected Files" list.
+
+Click this button to add the file to the "Selected Files" list.
+
+If there is no file selected, an error message will appear in the plot area.
+$"<< Remove" Button
+Select one or more files in the "Selected Files" list.
+
+Click "<< Remove" Button to remove the files from the list.
+
+If there are no files selected, an error message will appear in the plot area.
+$Plot Space
+This is used to display the selected layout file and error messages.
+                                                                                               

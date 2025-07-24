@@ -1,0 +1,85 @@
+The Vehicle Editor allows you to customize a vehicles sensors, speed, and acceleration.
+You can save the vehicle to a file to use with a model or load an existing vehicle.
+The plot on the left shows the vehicle, the frame on the right allows you to modify the vehicle.
+
+$"Select Layout" Button
+You must select some layout before changing the vehicle settings!
+
+Loads a pre-saved layout from you file system.
+
+$Logitude Slide Bar
+Determines the vehicles placement down the length of the lane. 
+
+0 = start of the lane
+1 = end of the lane
+
+$Latitude Slide Bar
+Determines the vehicles palcement from side to side in the lane.
+
+0 = Left edge
+0.5 = Center line
+1 = Right edge
+
+
+$Sensor Angle Spread Slide Bar
+This is the spread of the sensors from the origin point of the sensor system.
+
+!! This is in radians !!
+
+$Angle Offset Slide Bar
+Determines the angle offset from the center line of the lane the vehicle will be facing.
+
+!! This is in radians !!
+
+$Number of Sensors
+This is the number of sensors that the vehicle will have.
+
+The sensors are evenly spaced going out from the vehicle.
+
+Note: The longer the sensors are, the spacing might not look like its evenly spaced.
+
+$Sensor Length
+This is the length of the sensors in feet.
+
+
+$Speed
+This is the initial speed that the vehicle will be set to in mph.
+
+$"Update Vehicle" Button
+Press this to update the vehicle shown on the left to the current settings on the right.
+
+$"Save Vehicle Info" Button
+Press this to save the vehicle to a text file.
+
+A file dialog box will pop up, allowing you to set the name of the file.
+
+Text file contains the following in this order:
+=============================================================
+Longitude ------------- Format: longitude: x
+Latitude -------------- Format: latitude: x
+Angle Offset ---------- Format: angle_offset: x
+Speed ----------------- Format: speed: x 
+Number of sensors ----- Format: num_sensors: x
+Sensor Length --------- Format: sensor_length: x
+Sensor Angle Spread --- Format: sensor_angle_spread: x
+=============================================================
+
+Example file:
+=============================================================
+longitude:0.82
+latitude:0.5
+angle_offset:0.0
+speed:0.0
+num_sensors:5
+sensor_length:100
+sensor_angle_spread:0.39
+=============================================================
+
+$"Load Vehicle Info" Button
+Press this to load a vehicle from a text file.
+
+A file dialog box will pop up, allowing you to select a file to load.
+
+If you select a file that does not contain the correct vehicle format, you will see an error in the console, but nothing will show in the user interface.
+
+See "Save Vehicle Info" button help option for file formatting.

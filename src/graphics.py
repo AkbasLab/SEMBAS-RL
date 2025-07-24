@@ -25,25 +25,25 @@ def list_points_as_values(point_list: list[Point]) -> tuple[list[float], list[fl
     return x, y
 
 
-def plot_environment(environment: Environment):  # Tested as of 3/29/2025
+def plot_environment(environment: Environment, ax=None):  # Tested as of 3/29/2025
     """Plots the environment with its lane and vehicle."""
     lane = environment.lane
-    plot_lane(lane)  # Plot the lane
+    plot_lane(lane, ax)  # Plot the lane
 
 
-def plot_lane(lane: Lane):  # Tested as of 3/29/2025
+def plot_lane(lane: Lane, ax=None):  # Tested as of 3/29/2025
     """Plots the lane with its center line, left edge and right edge."""
-    ax = plt.gca()
+    ax = plt.gca() if ax is None else ax
 
     # Plot center line
     center_x, center_y = list_points_as_values(lane.center_line)
     ax.plot(center_x, center_y, "k--", label="Center Line")
 
     # Plot control points
-    ctrl_x, ctrl_y = list_points_as_values(lane.control_points)
-    ax.plot(ctrl_x, ctrl_y, "ro", label="Control Points")
-    for i, (x, y) in enumerate(zip(ctrl_x, ctrl_y)):
-        ax.annotate(text=f"{i}", xy=(x, y), fontsize=8, ha="right")
+    # ctrl_x, ctrl_y = list_points_as_values(lane.control_points)
+    # ax.plot(ctrl_x, ctrl_y, "ro", label="Control Points")
+    # for i, (x, y) in enumerate(zip(ctrl_x, ctrl_y)):
+    #     ax.annotate(text=f"{i}", xy=(x, y), fontsize=8, ha="right")
 
     # Plot left edge
     left_x, left_y = list_points_as_values(lane.left_edge)
@@ -62,9 +62,9 @@ def plot_lane(lane: Lane):  # Tested as of 3/29/2025
     )
 
 
-def plot_vehicle(vehicle: Vehicle):  # Tested as of 3/29/2025
+def plot_vehicle(vehicle: Vehicle, ax=None):  # Tested as of 3/29/2025
     """Plots the vehicle with its body, center point and heading."""
-    ax = plt.gca()
+    ax = plt.gca() if ax is None else ax
     # Plot vehicle body
     body_x, body_y = list_points_as_values(vehicle.body.corners)
     ax.fill(body_x, body_y, "b", label="Vehicle Body")
@@ -80,23 +80,23 @@ def plot_vehicle(vehicle: Vehicle):  # Tested as of 3/29/2025
     heading_point = vehicle.center_point + Point(d[0], d[1])
     x = [vehicle.center_point.x, (heading_point.x)]
     y = [vehicle.center_point.y, (heading_point.y)]
-    ax.plot(x, y, "g->", label="Vehicle Heading")
-    # ax.annotate(
-    #     "",
-    #     xy=(x[1], y[1]),
-    #     xytext=(x[0], y[0]),
-    #     arrowprops=dict(
-    #         facecolor="green",
-    #         edgecolor="green",
-    #         arrowstyle="->",
-    #         lw=2,
-    #     ),
-    # )
+    ax.plot(x, y, "g-", label="Vehicle Heading")
+    ax.annotate(
+        "",
+        xy=(x[1], y[1]),
+        xytext=(x[0], y[0]),
+        arrowprops=dict(
+            facecolor="green",
+            edgecolor="green",
+            arrowstyle="->",
+            lw=2,
+        ),
+    )
 
 
-def plot_sensors(sensor_array: SensorArray):  # Tested as of 3/29/2025
+def plot_sensors(sensor_array: SensorArray, ax=None):  # Tested as of 3/29/2025
     """Plots the sensors in the sensor array."""
-    ax = plt.gca()
+    ax = plt.gca() if ax is None else ax
     label = "Sensor"
     for i, sensor in enumerate(sensor_array.sensors):
         ax.plot(
@@ -109,9 +109,9 @@ def plot_sensors(sensor_array: SensorArray):  # Tested as of 3/29/2025
         label = None
 
 
-def plot_sensor_detections(detection_points, detection_distances):
+def plot_sensor_detections(detection_points, detection_distances, ax=None):
     """Plots the sensor detections."""
-    ax = plt.gca()
+    ax = plt.gca() if ax is None else ax
     label = "Sensor Detection"
     for i, point in enumerate(detection_points):
         if point is not None:
@@ -134,7 +134,7 @@ def show(
     plt.xlim(x_lim[0], x_lim[1])
     plt.ylim(y_lim[0], y_lim[1])
     plt.title(title)
-    plt.pause(0.1)
+    plt.pause(0.000000001)
 
 
 def show_without_pause(

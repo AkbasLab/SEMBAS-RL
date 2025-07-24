@@ -1,0 +1,2 @@
+Welcome to the CARLOS Graphical User Interface help section!
+Select the button corresponding to the user interface you need help with. Then use the list on the left to view instructions on how to use each component.

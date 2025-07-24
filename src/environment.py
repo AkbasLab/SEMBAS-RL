@@ -134,30 +134,25 @@ def determine_distance(point: Point, segment_pt1: Point, segment_pt2: Point):
     x2, y2 = segment_pt2.values()
     x3, y3 = point.values()
 
-    # Compute the line direction vector
     dx = x2 - x1
     dy = y2 - y1
+    segment_len_sq = dx * dx + dy * dy
 
-    # Compute the projection of point3 onto the line
-    # if (dx**2 + dy**2) == 0:
-    #     print("x1-2, y1-2, dx, dy:", (x1, x2), (y1, y2), (dx, dy))
-    t = (
-        ((x3 - x1) * dx + (y3 - y1) * dy) / (dx**2 + dy**2)
-        if (dx**2 + dy**2) != 0
-        else 0
-    )
+    # If the segment is a point, return distance to that point
+    if segment_len_sq == 0:
+        print("SEGMENT = 0")
+        return np.hypot(x3 - x1, y3 - y1)
 
-    # Clamp t to the range [0,1] to ensure the closest point is on the segment
-    t = max(0, min(1, t))
+    # Projection factor t of point onto the line segment
+    t = ((x3 - x1) * dx + (y3 - y1) * dy) / segment_len_sq
+    t = max(0.0, min(1.0, t))  # Clamp t to [0,1]
 
-    # Compute the closest point on the segment
+    # Closest point on the segment
     closest_x = x1 + t * dx
     closest_y = y1 + t * dy
 
-    # Compute the perpendicular distance
-    distance = np.sqrt((x3 - closest_x) ** 2 + (y3 - closest_y) ** 2)
-
-    return distance
+    # Return Euclidean distance
+    return np.hypot(x3 - closest_x, y3 - closest_y)
 
 
 def closest_points(point: Point, curve_pts: list[Point]):
@@ -168,7 +163,7 @@ def closest_points(point: Point, curve_pts: list[Point]):
         curve_pts (list[Point]): List of points to determine closest to the given point.
 
     Returns:
-        distance (float): The distance the point is from the closest point in the given list of points.
+        index (float): The index in the list the point is from the closest point in the given list of points.
         nearest_points (list[Point]): List of the two closest points to the given point.
     """
     px, py = point.values()
@@ -185,6 +180,11 @@ def closest_points(point: Point, curve_pts: list[Point]):
     # Getting the two closest points
     pt1 = curve_pts[nearest_idx]
     pt2 = curve_pts[sectond_neared_idx]
+    if distances[nearest_idx] == distances[sectond_neared_idx]:
+        print("!! DISTANCES EQUAL !!")
+        distances[sectond_neared_idx] = np.inf
+        sectond_neared_idx = np.argmin(distances)
+        pt2 = curve_pts[sectond_neared_idx]
 
     return [pt1, pt2], nearest_idx
 
