@@ -533,9 +533,7 @@ def sembas_reacquisition(
     SEMBAS has reacquired the boundary and is exploring once more.
     """
 
-    print("TEST")
     session.send_message(MSG_REACQ)
-    print("TEST")
     new_train_data = run_until_phase(
         session, sim, crit_step_c, api.SembasSession.PHASE_BOUNDARY_EXPL
     )
