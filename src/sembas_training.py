@@ -338,6 +338,8 @@ def warmup(
     ).sum() < window_size // 2:
         # longitude: float, latitude: float, dir_angle_offset: float, speed: float
         # sim.sim_random_reset()
+        if i > max_episodes:
+            return False
         if apply_expl_noise:
             sim.agent.update_expl_noise(i, max_episodes or 100)
 
@@ -373,13 +375,9 @@ def warmup(
         else:
             nontarget_states.append(x)
 
-        i += 1
 
-    return (
-        torch.vstack(target_states) if len(target_states) > 0 else None,
-        torch.vstack(nontarget_states) if len(nontarget_states) > 0 else None,
-        torch.vstack(invalid_states) if len(invalid_states) > 0 else None,
-    )
+        i += 1
+    return True
 
 
 def train_batch(agent: NewAgent, episodic_train_data):
