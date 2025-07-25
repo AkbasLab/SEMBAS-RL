@@ -542,32 +542,29 @@ def sembas_reacquisition(
 
 
 def sembas_training(
-    batch_size: int, crit_step_c: int, num_iterations: int = None, plot_samples=False, init_crit_step_c=None
+    batch_size: int, crit_step_c: int, num_iterations: int = None, plot_samples=False, init_crit_step_c=None, include_warmup=True, save_warmup=True, wup_suffix:str=None, wup_subdir="misc", max_warmup_episodes=100, session=None
 ):
     init_crit_step_c = init_crit_step_c or crit_step_c
-    print("Setting up connection...")
-    # client = api.setup_socket(4)
-    session = api.SembasSession([SIM_LOW, SIM_HIGH], plot_samples=plot_samples)
-    total_episodes = batch_size * num_iterations
+    wup_suffix = f"-{wup_suffix}" if wup_suffix is not None else ""
+    
+    session = session or api.SembasSession([SIM_LOW, SIM_HIGH], plot_samples=plot_samples)
     ep = 0
 
     reward_log = []
     step_log = []
-    # get enough data to fill memory and begin training ~ episodes
-    print("Warmup...")
-    warmup(sim, target_step_c=init_crit_step_c)
-    sim.agent.save(".models/warmup/warmup.model")
-
-    # plt.pause(0.01)
-
-    # Get through the phases
-    # while session.phase != api.SembasSession.PHASE_BOUNDARY_EXPL:
+    if include_warmup:
+        complete = False 
+        while not complete:
+            print("Warmup...")
+            complete = warmup(sim, target_step_c=init_crit_step_c, max_episodes=max_warmup_episodes)
+            
+    if save_warmup:
+        sim.agent.save(f".models/warmup/{wup_subdir}", f"warmup{wup_suffix}")
 
     training_batch = []
     requests = []
 
     process = "NewSearch"
-    input("Press enter to continue")
     i = 0
     try:
         while num_iterations is None or i < num_iterations:
