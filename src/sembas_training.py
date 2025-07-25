@@ -507,10 +507,10 @@ def run_until_phase(
 
 # def get_even_split()
 def traditional_training(
-    group_size: int, num_groups: int, with_grouping=True
+    wup_path: str, group_size: int, num_groups: int, with_grouping=False,
 ):
     # re-use the warmed up model used by SEMBAS
-    sim.agent.load(".models/warmup/warmup.model/agent_latest.pt")
+    sim.agent.load(wup_path)
     reward_log = []
     step_log = []
 
