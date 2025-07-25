@@ -583,7 +583,7 @@ def sembas_training(
                         )
                         requests.append(x)
                         training_batch.append(train_data)
-                        if len(training_batch) > batch_size:
+                        if len(training_batch) >= batch_size:
                             process = "Training"
                     else:
                         print(
