@@ -3,7 +3,9 @@ import struct
 import matplotlib.pyplot as plt
 from time import sleep
 import torch
+import logging 
 
+logger = logging.getLogger("api")
 
 def wait_until_open(
     client: socket.socket, max_attempts: int | None = 10, delay: float = 0.1
@@ -22,7 +24,7 @@ def wait_until_open(
 
 
 def send_message(client: socket.socket, msg: str):
-    print(f"Sending msg {msg}")
+    logger.debug(f"Sending msg {msg}")
     data = f"{msg}\n".encode("utf-8")
     client.sendall(data)
 
@@ -39,12 +41,13 @@ def receive_message(client: socket.socket) -> str:
         buffer.extend(chunk)
 
     msg = buffer.decode("utf-8")
-    print(f"Recieved message {msg}")
+    logger.debug(f"Recieved message {msg}")
     return msg
 
 
 def setup_socket(ndim, max_attempts: int = None, fail_on_refuse=False):
     "Create the FUT's connection to SEMBAS"
+    logger.info("Setting up")
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     if fail_on_refuse:
@@ -66,26 +69,32 @@ def setup_socket(ndim, max_attempts: int = None, fail_on_refuse=False):
         client.close()
         raise e
 
+    logger.info("Setup complete")
     return client
 
 
 def receive_request(client: socket.socket, ndim: int) -> torch.Tensor:
     "Receives a request from SEMBAS, i.e. an input to classify."
     data_size = ndim * 8  # ndim * size(f64)
-    print(f"Expecting {data_size} bytes")
+    logger.debug(f"Expecting {data_size} bytes")
     data = client.recv(data_size)
     _msg = None
     try:
         _msg = data.decode("utf-8")
     except:
         pass
+    
+    if _msg is None:
+        logger.debug(f"Got request of length {len(data)} bytes. Read: {_msg}")
+    else:
+        logger.warning(f"Parsable request? Got request of length {len(data)} bytes. Read: {_msg}")
 
-    print(f"Got request of length {len(data)} bytes. Read: {_msg}")
     return torch.tensor(struct.unpack(f"{ndim}d", data))
 
 
 def send_response(client: socket.socket, cls: bool):
     "Sends a response to SEMBAS, i.e. the class of the input it requested."
+    logger.debug(f"Sending {cls}")
     bool_byte = int(cls).to_bytes(1, byteorder="big")
     client.sendall(bool_byte)
 
@@ -149,7 +158,7 @@ class SembasSession:
         plot_samples=False,
         dim_names=None,
     ):
-        print("Init")
+        logger.info("Initializing Connection")
         assert (
             bounds[0].shape == bounds[1].shape and len(bounds[0].shape) == 1
         ), "Incorrect bounds shapes"
@@ -202,7 +211,7 @@ class SembasSession:
         return self._ndim
 
     def receive_request(self) -> torch.Tensor:
-        print("receive_request")
+        logger.debug("Session: Beginning Request")
         self._lazily_update_phase()
         self.send_message(self.MSG_CONTINUE)
         assert (
@@ -210,14 +219,13 @@ class SembasSession:
         ), f"Must first send pending response? step: {self._step}"
         self._lazily_update_phase()
         self._step = self.STEP_RES
-        print("Receiving request")
         req = self.map_sembas(receive_request(self.socket, self.ndim))
         self._prev_req = req
-        print("Request received")
+        logger.debug("Session: Request Received")
         return req
 
     def send_response(self, cls: bool):
-        print(f"sending_response({cls})")
+        logger.debug(f"Session: Sending Response ({cls})")
         assert (
             self._step == self.STEP_RES
         ), "Must first receive request prior to response!"
@@ -227,14 +235,13 @@ class SembasSession:
             plt.pause(0.01)
 
         send_response(self.socket, cls)
-        print("(Response Sent)")
         self._phase_retrieved = False
 
         self._step = self.STEP_MSG
-        print("\n")
+        logger.debug("Session: Reponse Sent")
 
     def send_message(self, msg: str):
-        print(f"send_message({msg})")
+        logger.debug(f"Session: Sending Message ({msg})")
         assert (
             self._step == self.STEP_MSG
         ), f"Must complete request in order to send messages! step: {self._step}"
@@ -242,23 +249,22 @@ class SembasSession:
             self._step = self.STEP_REQ
 
         self._lazily_update_phase()
-        print("Sending message")
         send_message(self.socket, msg)
-        print("(Msg Sent)")
         self._phase_retrieved = False
+        logger.debug("Session: Message Sent")
 
     def map_sembas(self, x: tuple) -> torch.Tensor:
         x = torch.tensor(x)
         return x * (self.hi - self.lo) + self.lo
 
     def force_continue(self):
-        print("force_continue")
+        logger.debug("Session: Force Continue")
         self._lazily_update_phase()
         self.send_message(self.MSG_CONTINUE)
 
     def expect_phase(self) -> str:
         "Fetches phase for when in messaging step."
-        print("expect_phase")
+        logger.debug("Session: Expecting Phase")
         assert (
             self._step == self.STEP_MSG
         ), "Cannot expect phase unless in messaging step"
@@ -269,7 +275,7 @@ class SembasSession:
 
     def _lazily_update_phase(self):
         if not self._phase_retrieved:
-            print("Receiving phase...")
+            logger.debug("Session: Receiving Phase")
             self._phase = receive_message(self.socket)
-            print(f"Updated phase: {self._phase}")
+            logger.debug(f"Session: Updated phase ({self._phase})")
             self._phase_retrieved = True
