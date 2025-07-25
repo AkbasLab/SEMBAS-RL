@@ -455,8 +455,8 @@ def run_until_phase(
     """
     new_train_data = {}  # phase : list[(list[train_step], cls)]
     # session.force_continue()
-    print(f"Running until {target_phase}, starting {session.prev_known_phase}")
     session.expect_phase()
+    print(f"Running until {target_phase}, starting {session.prev_known_phase}")
     while session.prev_known_phase != target_phase:
         if session.prev_known_phase not in new_train_data:
             print(f"Starting phase {session.prev_known_phase}")
