@@ -233,8 +233,8 @@ class NewAgent(Agent):
         state_speed, state_heading, wp_heading = state[:3]
         state_sensor = state[3:]  # Sensor readings
 
-        speed_mph = state_speed * self.max_speed
-        heading_abs = state_heading * np.pi
+        speed_mph = state_speed.item() * self.max_speed
+        heading_abs = state_heading.item() * np.pi
         sensor_data = state_sensor * self.max_sense_dist
 
         # Base reward for staying in lane
@@ -243,12 +243,12 @@ class NewAgent(Agent):
         if not in_lane:
             # Heavy penalty for leaving the lane
             reward -= 50.0
-            return reward
+            return torch.tensor(reward)
 
         if not in_motion:
             # Penalty for stopping
             reward -= 50.0
-            return reward
+            return torch.tensor(reward)
 
         # v1: [cos(hd), sin(hd)], v2: [cos(whd), sin(whd)]
 
@@ -265,7 +265,7 @@ class NewAgent(Agent):
         reward += angle_reward
 
         # Reward for speed - encourage moderate speeds
-        speed_reward = 30 * state_speed if speed_mph >= 15 else -10
+        speed_reward = 30 * state_speed.item() if speed_mph >= 15 else -10
         reward += speed_reward
 
         # Reward for staying in the center of the lane
@@ -273,13 +273,13 @@ class NewAgent(Agent):
         # Assuming sensors are arranged symmetrically with center sensor at index len(sensor_data)//2
         center_index = len(sensor_data) // 2
         # Higher reward for staying in the center
-        center_reward = 20.0 * state_sensor[center_index]
+        center_reward = 20.0 * state_sensor[center_index].item()
 
         reward += center_reward
 
         # Penalty for being close to the edges
         edge_penalty = 0.0
-        min_sensor_reading = torch.min(sensor_data)
+        min_sensor_reading = torch.min(sensor_data).item()
         # print("min sense", min_sensor_reading)
         if min_sensor_reading < 2:  # If any sensor reading is less than 20 units
             edge_penalty = -30.0 * (1.0 - min_sensor_reading / 2.0)
@@ -302,7 +302,9 @@ class NewAgent(Agent):
             )
 
             print("Final reward", reward)
-        return reward
+
+            
+        return torch.tensor([reward])
 
     def train_step(self, prev_state, action, reward, next_state, done):
         """
