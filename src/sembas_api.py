@@ -1,11 +1,14 @@
 import socket
 import struct
 import matplotlib.pyplot as plt
-from time import sleep
-import torch
 import logging 
+import numpy as np 
+
+from numpy import ndarray
+from time import sleep
 
 logger = logging.getLogger("api")
+logger.setLevel(logging.DEBUG)
 
 def wait_until_open(
     client: socket.socket, max_attempts: int | None = 10, delay: float = 0.1
@@ -73,7 +76,7 @@ def setup_socket(ndim, max_attempts: int = None, fail_on_refuse=False):
     return client
 
 
-def receive_request(client: socket.socket, ndim: int) -> torch.Tensor:
+def receive_request(client: socket.socket, ndim: int) -> ndarray:
     "Receives a request from SEMBAS, i.e. an input to classify."
     data_size = ndim * 8  # ndim * size(f64)
     logger.debug(f"Expecting {data_size} bytes")
@@ -89,7 +92,7 @@ def receive_request(client: socket.socket, ndim: int) -> torch.Tensor:
     else:
         logger.warning(f"Parsable request? Got request of length {len(data)} bytes. Read: {_msg}")
 
-    return torch.tensor(struct.unpack(f"{ndim}d", data))
+    return np.array(struct.unpack(f"{ndim}d", data))
 
 
 def send_response(client: socket.socket, cls: bool):
@@ -153,7 +156,7 @@ class SembasSession:
 
     def __init__(
         self,
-        bounds: tuple[torch.Tensor, torch.Tensor],
+        bounds: tuple[ndarray, ndarray],
         max_attempts: int = None,
         plot_samples=False,
         dim_names=None,
@@ -210,7 +213,7 @@ class SembasSession:
     def ndim(self):
         return self._ndim
 
-    def receive_request(self) -> torch.Tensor:
+    def receive_request(self) -> ndarray:
         logger.debug("Session: Beginning Request")
         self._lazily_update_phase()
         self.send_message(self.MSG_CONTINUE)
@@ -253,8 +256,8 @@ class SembasSession:
         self._phase_retrieved = False
         logger.debug("Session: Message Sent")
 
-    def map_sembas(self, x: tuple) -> torch.Tensor:
-        x = torch.tensor(x)
+    def map_sembas(self, x: tuple) -> ndarray:
+        x = np.array(x)
         return x * (self.hi - self.lo) + self.lo
 
     def force_continue(self):
