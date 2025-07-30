@@ -264,10 +264,6 @@ def random_training_with_early_stopping(
 
         reward_log.append(running_reward.item())
         step_log.append(steps)
-        if (i + 1) % (num_episodes // 20) == 0:
-            print(
-                f"{i+1} : {sum(step_log[-10:]) / 10}, {min(step_log[-10:])}, {max(step_log[-10:])}"
-            )
         i += 1
 
     return reward_log, step_log
