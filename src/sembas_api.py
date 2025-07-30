@@ -1,14 +1,24 @@
 import socket
 import struct
 import matplotlib.pyplot as plt
-import logging 
-import numpy as np 
+import logging
+import numpy as np
 
 from numpy import ndarray
 from time import sleep
 
 logger = logging.getLogger("api")
 logger.setLevel(logging.DEBUG)
+
+file_handler = logging.FileHandler("api.log")
+
+file_handler.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter("%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s")
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+
 
 def wait_until_open(
     client: socket.socket, max_attempts: int | None = 10, delay: float = 0.1
@@ -27,12 +37,14 @@ def wait_until_open(
 
 
 def send_message(client: socket.socket, msg: str):
-    logger.debug(f"Sending msg {msg}")
+    logger.info(f"Sending message '{msg}'")
     data = f"{msg}\n".encode("utf-8")
     client.sendall(data)
+    logger.info(f"Message sent")
 
 
 def receive_message(client: socket.socket) -> str:
+    logger.info("Receiving message...")
     buffer = bytearray()
     while True:
         chunk = client.recv(1)
@@ -44,7 +56,7 @@ def receive_message(client: socket.socket) -> str:
         buffer.extend(chunk)
 
     msg = buffer.decode("utf-8")
-    logger.debug(f"Recieved message {msg}")
+    logger.info(f"Recieved message '{msg}'")
     return msg
 
 
@@ -78,6 +90,7 @@ def setup_socket(ndim, max_attempts: int = None, fail_on_refuse=False):
 
 def receive_request(client: socket.socket, ndim: int) -> ndarray:
     "Receives a request from SEMBAS, i.e. an input to classify."
+    logger.info("Receiving request")
     data_size = ndim * 8  # ndim * size(f64)
     logger.debug(f"Expecting {data_size} bytes")
     data = client.recv(data_size)
@@ -86,20 +99,27 @@ def receive_request(client: socket.socket, ndim: int) -> ndarray:
         _msg = data.decode("utf-8")
     except:
         pass
-    
+
     if _msg is None:
         logger.debug(f"Got request of length {len(data)} bytes. Read: {_msg}")
     else:
-        logger.warning(f"Parsable request? Got request of length {len(data)} bytes. Read: {_msg}")
+        logger.warning(
+            f"Parsable request? Got request of length {len(data)} bytes. Read: {_msg}"
+        )
 
-    return np.array(struct.unpack(f"{ndim}d", data))
+    req = np.array(struct.unpack(f"{ndim}d", data))
+
+    logger.info("Request received")
+    logger.debug(f"Request: {req}")
+    return req
 
 
 def send_response(client: socket.socket, cls: bool):
     "Sends a response to SEMBAS, i.e. the class of the input it requested."
-    logger.debug(f"Sending {cls}")
+    logger.info(f"Sending response ({cls})")
     bool_byte = int(cls).to_bytes(1, byteorder="big")
     client.sendall(bool_byte)
+    logger.info(f"Response sent")
 
 
 class SembasSession:
@@ -214,7 +234,6 @@ class SembasSession:
         return self._ndim
 
     def receive_request(self) -> ndarray:
-        logger.debug("Session: Beginning Request")
         self._lazily_update_phase()
         self.send_message(self.MSG_CONTINUE)
         assert (
@@ -224,11 +243,9 @@ class SembasSession:
         self._step = self.STEP_RES
         req = self.map_sembas(receive_request(self.socket, self.ndim))
         self._prev_req = req
-        logger.debug("Session: Request Received")
         return req
 
     def send_response(self, cls: bool):
-        logger.debug(f"Session: Sending Response ({cls})")
         assert (
             self._step == self.STEP_RES
         ), "Must first receive request prior to response!"
@@ -241,10 +258,8 @@ class SembasSession:
         self._phase_retrieved = False
 
         self._step = self.STEP_MSG
-        logger.debug("Session: Reponse Sent")
 
     def send_message(self, msg: str):
-        logger.debug(f"Session: Sending Message ({msg})")
         assert (
             self._step == self.STEP_MSG
         ), f"Must complete request in order to send messages! step: {self._step}"
@@ -254,20 +269,19 @@ class SembasSession:
         self._lazily_update_phase()
         send_message(self.socket, msg)
         self._phase_retrieved = False
-        logger.debug("Session: Message Sent")
 
     def map_sembas(self, x: tuple) -> ndarray:
         x = np.array(x)
         return x * (self.hi - self.lo) + self.lo
 
     def force_continue(self):
-        logger.debug("Session: Force Continue")
+        logger.info("Session: Force Continue")
         self._lazily_update_phase()
         self.send_message(self.MSG_CONTINUE)
 
     def expect_phase(self) -> str:
         "Fetches phase for when in messaging step."
-        logger.debug("Session: Expecting Phase")
+        logger.info("Session: Expecting Phase")
         assert (
             self._step == self.STEP_MSG
         ), "Cannot expect phase unless in messaging step"
@@ -278,7 +292,7 @@ class SembasSession:
 
     def _lazily_update_phase(self):
         if not self._phase_retrieved:
-            logger.debug("Session: Receiving Phase")
+            logger.info("Session: Receiving Phase")
             self._phase = receive_message(self.socket)
-            logger.debug(f"Session: Updated phase ({self._phase})")
+            logger.info(f"Session: Updated phase ({self._phase})")
             self._phase_retrieved = True

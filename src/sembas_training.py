@@ -16,14 +16,27 @@ import graphics
 import numpy as np
 import sembas_api as api
 import torch
-import logging 
+import logging
 
 from numpy import ndarray
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s"
+)
 
 logger = logging.getLogger("trainer")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
+
+file_handler = logging.FileHandler("st.log")
+
+file_handler.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter("%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s")
+file_handler.setFormatter(formatter)
+
+# Add handlers to the logger
+logger.addHandler(file_handler)
+
 
 # Creating Log
 def init_log(file_path: str = None):
@@ -57,14 +70,10 @@ LR_ACTOR = 1e-3
 LR_CRITIC = 1e-2
 GAMMA = 0.99
 NUM_DIM = 4
-# longitude: float,
-# latitude: float,
-# dir_angle_offset: float,
-# speed: float
-T_SIM_LOW = np.array([0, 0.25, -np.pi / 5, 20.0])
-T_SIM_HIGH = np.array([1, 0.75, np.pi / 5, 75.0])
-SIM_LOW = np.array([0, -np.pi / 5])
-SIM_HIGH = np.array([1, np.pi / 5])
+SIM_LOW = np.array([0, 0.25, -np.pi / 5, 20.0])
+SIM_HIGH = np.array([1, 0.75, np.pi / 5, 75.0])
+# SIM_LOW = np.array([0, -np.pi / 5])
+# SIM_HIGH = np.array([1, np.pi / 5])
 
 EST_STEPS_PER_EP = 15  # early episodes are short
 
@@ -78,9 +87,6 @@ print("WIDTH", lane_width)
 lane = Lane(
     control_points=lane_ctrl_points, lane_width=lane_width, closed_loop=closed_loop
 )
-# lane = Lane(
-#     control_points=[Point(50, 350), Point(350, 350)], lane_width=12.0, closed_loop=False
-# )
 
 #### Environment Initialization ####
 env = Environment(lane)
@@ -99,7 +105,7 @@ sensor_array = SensorArray(
 # Number of sensors + 2 for vehicle heading, speed, and wp_heading
 obs_size = NUM_SENSORS + 2 + 1
 
-agent = NewAgent(
+agent_factory = lambda: NewAgent(
     sensor_array,
     obs_dim=obs_size,
     action_dim=ACTION_DIM,
@@ -108,20 +114,21 @@ agent = NewAgent(
     lr_actor=LR_ACTOR,
     lr_critic=LR_CRITIC,
     gamma=GAMMA,
-    # lr_schedule=[(0.9, (1e-3, 1e-4))],
-)  # Placeholder for actual agent implementation
+)
+
+agent = agent_factory()
 
 #### Simulation Initialization ####
 sim = Simulation(vehicle=vehicle, environment=env, agent=agent, dt=TIME_STEP_SEC)
-x = torch.tensor([
-    INITIAL_LONGITUDE,
-    INITIAL_LATITUDE,
-    INITIAL_DIR_ANGLE_OFFSET,
-    INITIAL_SPEED_MPH,
-])
-sim.sim_reset(
-    *x
+x = torch.tensor(
+    [
+        INITIAL_LONGITUDE,
+        INITIAL_LATITUDE,
+        INITIAL_DIR_ANGLE_OFFSET,
+        INITIAL_SPEED_MPH,
+    ]
 )
+sim.sim_reset(*x)
 
 
 def elapsed_time(start_time: float) -> float:
@@ -135,30 +142,105 @@ def map_norm(bounds, x) -> ndarray:
     x = np.array(x)
     return x * (bounds[1] - bounds[0]) + bounds[0]
 
-def train_random(sim: Simulation, num_episodes: int):
+
+def train_random(sim: Simulation, num_episodes: int = None, num_steps: int = None):
     """
     Trains the agent with an initial amount of random experience to
     establish an initial region of competence.
     """
-    print("Rerunning and training over boundary")
+    assert num_episodes or step_i, "Must specify either num eps or steps"
+
+    agent: NewAgent = sim.agent
+
+    reward_log = []
+    step_log = []
+    ep_i = 0
+    step_i = 0
+    total_steps = 0
+    while (
+        num_episodes is None
+        or ep_i < num_episodes
+        and (num_steps is None or total_steps < num_steps)
+    ):
+        # longitude: float, latitude: float, dir_angle_offset: float, speed: float
+        # sim.sim_random_reset()
+        agent.update_expl_noise(ep_i, num_episodes)
+
+        # scale
+        is_valid = False
+        while not is_valid:
+            x = np.random.random(4)
+            x = map_norm((SIM_LOW, SIM_HIGH), x)
+            sim.sim_reset(*x)
+            sim.update_sim_status()
+            is_valid = sim.get_sim_status()[1]
+
+        done = False
+        steps = 0
+        running_reward = 0
+
+        # run episode
+        while (
+            not done
+            and steps < MAX_STEPS
+            and (num_steps is None or total_steps < num_steps)
+        ):
+            state, action, reward, next_state = sim.sim_step()
+            running_reward += reward
+
+            sim.update_sim_status()
+            _, in_lane, in_motion = sim.get_sim_status()
+            done = not in_lane or not in_motion
+
+            sim.agent.train_step(state, action, reward, next_state, done)
+
+            steps += 1
+            total_steps += 1
+
+        reward_log.append(running_reward.item())
+        step_log.append(steps)
+        if (ep_i + 1) % (num_episodes // 20) == 0:
+            print(
+                f"{ep_i+1} : {sum(step_log[-10:]) / 10}, {min(step_log[-10:])}, {max(step_log[-10:])}"
+            )
+
+        ep_i += 1
+
+    return reward_log, step_log
+
+
+def random_training_with_early_stopping(
+    sim: Simulation, median_step_count_change: int, window_size: int = 10
+):
+    """
+    Trains the agent with an initial amount of random experience to
+    establish an initial region of competence.
+    """
     num_steps = 0
 
     agent: NewAgent = sim.agent
 
     reward_log = []
     step_log = []
+    i = 0
+    while (
+        len(step_log) < window_size
+        and (
+            (
+                np.array(step_log[1 - window_size :])
+                - np.array(step_log[-window_size:-1])
+            )
+            >= median_step_count_change
+        ).sum()
+        >= window_size // 2
+    ):
+        agent.update_expl_noise(i, 150)
 
-    for i in range(num_episodes):
-        # longitude: float, latitude: float, dir_angle_offset: float, speed: float
-        # sim.sim_random_reset()
-        agent.update_expl_noise(i, num_episodes)
-
-        # scale
         is_valid = False
         while not is_valid:
             x = np.random.random(4)
-            x = map_norm((T_SIM_LOW, T_SIM_HIGH), x)
-            sim.sim_reset(x[0], 0.5, x[2], 45)
+            x = map_norm((SIM_LOW, SIM_HIGH), x)
+            sim.sim_reset(*x)
             sim.update_sim_status()
             is_valid = sim.get_sim_status()[1]
 
@@ -182,88 +264,13 @@ def train_random(sim: Simulation, num_episodes: int):
 
         reward_log.append(running_reward.item())
         step_log.append(steps)
-        if (i + 1) % (num_episodes // 10) == 0:
-            print(f"{i} : {steps}")
+        if (i + 1) % (num_episodes // 20) == 0:
+            print(
+                f"{i+1} : {sum(step_log[-10:]) / 10}, {min(step_log[-10:])}, {max(step_log[-10:])}"
+            )
+        i += 1
 
     return reward_log, step_log
-
-def run_random_group(sim: Simulation, crit_step_c: int, n_episodes: int = 10):
-    """
-    Returns the training data developed on a given pass of the
-    SEMBAS algorithm.
-    """
-    episodic_train_data = []
-    for i in range(n_episodes):
-        # sim.sim_random_reset((SIM_LOW[3], SIM_HIGH[3]))
-        x = np.random.random(4)
-        x = torch.tensor(map_norm((SIM_LOW, SIM_HIGH), x))
-        sim.sim_reset(x[0], 0.5, x[2], 45)
-        sim.update_sim_status()
-        invalid_initial_state = not sim.get_sim_status()[1]
-        if invalid_initial_state:
-            episodic_train_data.append(([], False))
-            continue
-
-        done = False
-        steps = 0
-
-        episode_data = []
-        # run episode
-        while not done and steps < MAX_STEPS:
-            # Get action + step simulation
-            state, action, reward, next_state = sim.sim_step()
-
-            # Check status
-            sim.update_sim_status()
-            _, in_lane, in_motion = sim.get_sim_status()
-            done = not in_lane or not in_motion
-
-            # new_train_data.append((state, action, reward, next_state, done))
-            episode_data.append((state, action, reward, next_state, done))
-            steps += 1
-
-        # Target performance is unsafe behavior (i.e. not in lane)
-        # api.send_response(client, not in_lane)
-        episodic_train_data.append((episode_data, steps >= crit_step_c))
-
-    return episodic_train_data
-
-
-def run_episode(x: ndarray, sim: Simulation, crit_step_c: int):
-    """
-    Returns the training data developed on a given pass of the
-    SEMBAS algorithm.
-    """
-    # longitude: float, latitude: float, dir_angle_offset: float, speed: float
-    # x = receive_request(client)
-    # sim.sim_reset(*x)
-    x = torch.tensor(x)
-    sim.sim_reset(x[0], 0.5, x[1], 45)
-    # scale
-    sim.update_sim_status()
-    is_valid = sim.get_sim_status()[1]
-    if not is_valid:
-        return False, []
-
-    done = False
-    steps = 0
-
-    episode_data = []
-    # run episode
-    while not done and steps < MAX_STEPS:
-        # Get action + step simulation
-        state, action, reward, next_state = sim.sim_step()
-
-        # Check status
-        sim.update_sim_status()
-        _, in_lane, in_motion = sim.get_sim_status()
-        done = not in_lane or not in_motion
-
-        # new_train_data.append((state, action, reward, next_state, done))
-        episode_data.append((state, action, reward, next_state, done))
-        steps += 1
-
-    return steps >= crit_step_c, episode_data
 
 
 def run_sembas_episode(session: api.SembasSession, sim: Simulation, crit_step_c: int):
@@ -277,7 +284,8 @@ def run_sembas_episode(session: api.SembasSession, sim: Simulation, crit_step_c:
     # print("state", x.shape, x)
     # sim.sim_reset(*x)
     xt = torch.tensor(x)
-    sim.sim_reset(xt[0], 0.5, xt[1], 45)
+    # sim.sim_reset(xt[0], 0.5, xt[1], 45)
+    sim.sim_reset(*xt)
     # scale
     sim.update_sim_status()
     valid_init_state = sim.get_sim_status()[1]
@@ -321,6 +329,8 @@ def warmup(
     Trains the agent with an initial amount of random experience to
     establish an initial region of competence.
     """
+    # reset agent to fresh agent
+    sim.agent = agent_factory()
     i = 0
     num_steps = 0
     if apply_expl_noise:
@@ -330,12 +340,12 @@ def warmup(
 
     step_history = []
 
-    print(target_step_c)
+    logger.debug(f"Target step count: {target_step_c}")
 
-    # rng = lambda: map_norm((SIM_LOW, SIM_HIGH), torch.rand(len(SIM_LOW)))
-    rng = lambda: torch.tensor(
-        (np.random.rand(), 0.5, np.random.rand() * np.pi * 2 / 5 - np.pi / 5, 45.0)
-    )
+    rng = lambda: map_norm((SIM_LOW, SIM_HIGH), torch.rand(len(SIM_LOW)))
+    # rng = lambda: torch.tensor(
+    #     (np.random.rand(), 0.5, np.random.rand() * np.pi * 2 / 5 - np.pi / 5, 45.0)
+    # )
     # reset = lambda: sim.sim_reset(
     #     np.random.rand(), 0.5, np.random.rand() * np.pi * 2 / 5 - np.pi / 5, 45.0
     # )
@@ -386,39 +396,29 @@ def warmup(
         else:
             nontarget_states.append(x)
 
-
         i += 1
+
+    logger.debug(
+        f"[Warmup] Observed: targets: {len(target_states)} non-targets: {len(nontarget_states)}"
+    )
+
     return True
 
 
-def train_batch(agent: NewAgent, episodic_train_data):
-    print("Training batch")
-    reward_log = []
-    step_log = []
-    for ep_data in episodic_train_data:
-        running_reward = 0
-        for x in ep_data:
-            running_reward += x[2].item()
-            agent.train_step(*x)
-
-        reward_log.append(running_reward)
-        step_log.append(len(ep_data))
-
-    return reward_log, step_log
-
-
-def rerun_and_train(sim: Simulation, requests: list[ndarray], ep: int):
+def rerun_and_train(
+    sim: Simulation, requests: list[ndarray], ep: int, limit_steps: int = None
+):
     """
     Trains the agent with an initial amount of random experience to
     establish an initial region of competence.
     """
-    print("Rerunning and training over boundary")
     num_steps = 0
 
     agent: NewAgent = sim.agent
 
     reward_log = []
     step_log = []
+    total_steps = 0
 
     for i, x in enumerate(requests):
         # longitude: float, latitude: float, dir_angle_offset: float, speed: float
@@ -427,8 +427,8 @@ def rerun_and_train(sim: Simulation, requests: list[ndarray], ep: int):
 
         # scale
         x = torch.tensor(x)
-        sim.sim_reset(x[0], 0.5, x[1], 45)
-        # sim.sim_reset(*x)
+        # sim.sim_reset(x[0], 0.5, x[1], 45)
+        sim.sim_reset(*x)
 
         sim.update_sim_status()
         is_valid = sim.get_sim_status()[1]
@@ -441,6 +441,8 @@ def rerun_and_train(sim: Simulation, requests: list[ndarray], ep: int):
 
         # run episode
         while not done and steps < MAX_STEPS:
+            if limit_steps is not None and total_steps >= limit_steps:
+                break
             state, action, reward, next_state = sim.sim_step()
             running_reward += reward.item()
 
@@ -452,11 +454,19 @@ def rerun_and_train(sim: Simulation, requests: list[ndarray], ep: int):
 
             num_steps += 1
             steps += 1
+            total_steps += 1
 
         reward_log.append(running_reward)
         step_log.append(steps)
+        if limit_steps is not None and total_steps >= limit_steps:
+            break
+
+    print(
+        f"{i} : {sum(step_log[-10:]) / 10}, {min(step_log[-10:])}, {max(step_log[-10:])}"
+    )
 
     return reward_log, step_log
+
 
 def run_until_phase(
     session: api.SembasSession, sim: Simulation, crit_step_c: int, target_phase: str
@@ -478,8 +488,8 @@ def run_until_phase(
         # x = receive_request(client)
         x = session.receive_request()
         x = torch.tensor(x)
-        sim.sim_reset(x[0], 0.5, x[1], 45)
-        # sim.sim_reset(*x)
+        # sim.sim_reset(x[0], 0.5, x[1], 45)
+        sim.sim_reset(*x)
         # scale
         sim.update_sim_status()
         is_valid = sim.get_sim_status()[1]
@@ -521,7 +531,10 @@ def run_until_phase(
 
 # def get_even_split()
 def traditional_training(
-    wup_path: str, group_size: int, num_groups: int, with_grouping=False,
+    wup_path: str,
+    group_size: int,
+    num_groups: int,
+    with_grouping=False,
 ):
     # re-use the warmed up model used by SEMBAS
     sim.agent.load(wup_path)
@@ -535,6 +548,20 @@ def traditional_training(
             step_log.extend(s)
     else:
         reward_log, step_log = train_random(sim, group_size * num_groups)
+
+    return reward_log, step_log
+
+
+def traditional_training_by_steps(
+    wup_path: str,
+    num_steps: int,
+):
+    # re-use the warmed up model used by SEMBAS
+    sim.agent.load(wup_path)
+    reward_log = []
+    step_log = []
+
+    reward_log, step_log = train_random(sim, num_steps=num_steps)
 
     return reward_log, step_log
 
@@ -556,21 +583,37 @@ def sembas_reacquisition(
 
 
 def sembas_training(
-    batch_size: int, crit_step_c: int, num_iterations: int = None, plot_samples=False, init_crit_step_c=None, include_warmup=True, save_warmup=True, wup_suffix:str=None, wup_subdir="misc", max_warmup_episodes=100, session=None, wup_override=None
+    batch_size: int,
+    crit_step_c: int,
+    num_iterations: int = None,
+    plot_samples=False,
+    init_crit_step_c=None,
+    include_warmup=True,
+    save_warmup=True,
+    wup_suffix: str = None,
+    wup_subdir="misc",
+    max_warmup_episodes=100,
+    session=None,
+    wup_override=None,
+    target_training_steps: int = None,
 ):
     init_crit_step_c = init_crit_step_c or crit_step_c
     wup_suffix = f"-{wup_suffix}" if wup_suffix is not None else ""
-    
-    session = session or api.SembasSession([SIM_LOW, SIM_HIGH], plot_samples=plot_samples)
+
+    session = session or api.SembasSession(
+        [SIM_LOW, SIM_HIGH], plot_samples=plot_samples
+    )
     ep = 0
 
     reward_log = []
     step_log = []
     if include_warmup and wup_override is None:
-        complete = False 
+        complete = False
         while not complete:
-            logging.info("Warming up agent")
-            complete = warmup(sim, target_step_c=init_crit_step_c, max_episodes=max_warmup_episodes)
+            logger.info("Warming up agent")
+            complete = warmup(
+                sim, target_step_c=init_crit_step_c, max_episodes=max_warmup_episodes
+            )
     elif wup_override is not None:
         sim.agent.load(wup_override)
 
@@ -582,11 +625,19 @@ def sembas_training(
 
     process = "NewSearch"
     i = 0
+    num_new_searches = 0
+    t_c = 0
+    nt_c = 0
+    num_total_steps = 0
     try:
-        while num_iterations is None or i < num_iterations:
+        while (num_iterations is None or i < num_iterations) and not (
+            target_training_steps is not None
+            and num_total_steps >= target_training_steps
+        ):
             match process:
                 case "NewSearch":
                     logger.info("Starting new search")
+                    num_new_searches += 1
                     run_until_phase(
                         session, sim, crit_step_c, api.SembasSession.PHASE_BOUNDARY_EXPL
                     )
@@ -597,6 +648,12 @@ def sembas_training(
                         x, cls, train_data = run_sembas_episode(
                             session, sim, crit_step_c
                         )
+
+                        if cls:
+                            t_c += 1
+                        else:
+                            nt_c += 1
+
                         requests.append(x)
                         training_batch.append(train_data)
                         if len(training_batch) >= batch_size:
@@ -609,7 +666,16 @@ def sembas_training(
 
                 case "Training":
                     logger.info("Training")
-                    ep_rewards, ep_steps = rerun_and_train(sim, requests, ep)
+                    ep_rewards, ep_steps = rerun_and_train(
+                        sim,
+                        requests,
+                        ep,
+                        limit_steps=(
+                            None
+                            if target_training_steps is None
+                            else target_training_steps - num_total_steps
+                        ),
+                    )
                     reward_log.extend(ep_rewards)
                     step_log.extend(ep_steps)
 
@@ -620,62 +686,18 @@ def sembas_training(
                     ep += batch_size
 
                     sembas_reacquisition(session, sim, crit_step_c)
-                    
+
                     process = "BE"
                     i += 1
+                    num_total_steps += len(ep_rewards)
 
     except KeyboardInterrupt:
         logger.warning("Ending training early")
     finally:
         sim.agent.save()
 
-    return reward_log, step_log
-
-
-def test(crit_step_c: int, group_size: int = 10, num_samples=None):
-    print("Setting up connection...")
-    # client = api.setup_socket(4)
-    session = api.SembasSession([SIM_LOW, SIM_HIGH], plot_samples=True)
-    reward_log = []
-    step_log = []
-    # get enough data to fill memory and begin training ~ episodes
-    print("Warmup...")
-    warmup(sim, target_step_c=crit_step_c)
-    sim.agent.save(".models/warmup/warmup.model")
-
-    # Get through the phases
-    # while session.phase != api.SembasSession.PHASE_BOUNDARY_EXPL:
-    print("Running until boundary exploration...")
-    run_until_phase(session, sim, crit_step_c, api.SembasSession.PHASE_BOUNDARY_EXPL)
-
-    # fig, ax = plt.subplots()
-    # ax.set_title("Samples")
-    # ax.set_xlim(SIM_LOW[0], SIM_HIGH[0])
-    # ax.set_ylim(SIM_LOW[1], SIM_HIGH[1])
-    # ax.set_xlabel("Longitude")
-    # ax.set_ylabel("Angle")
-
-    print("Beginning boundary training")
-    i = 0
-    try:
-        while num_samples is None or i < num_samples:
-            targets = []
-            nontargets = []
-            for i in range(group_size):
-                x, cls, _ = run_sembas_episode(session, sim, crit_step_c)
-                if cls:
-                    targets.append(x)
-                else:
-                    nontargets.append(x)
-
-            # if len(targets) > 0:
-            #     ax.scatter(*np.array(targets).T, color="red")
-            # if len(nontargets) > 0:
-            #     ax.scatter(*np.array(nontargets).T, color="blue")
-            # plt.pause(0.01)
-
-    except KeyboardInterrupt:
-        print("Backing out")
+    logger.debug(f"Target and non-target counts: {t_c}, {nt_c}")
+    logger.debug(f"Number of new searches: {num_new_searches}")
 
     return reward_log, step_log
 
@@ -708,7 +730,7 @@ def perf_test(sim: Simulation, num_episodes: int, max_steps=MAX_STEPS):
             _, in_lane, in_motion = sim.get_sim_status()
             done = not in_lane or not in_motion
 
-            reward += reward.item()
+            running_reward += reward.item()
             steps += 1
 
         reward_log.append(running_reward)
@@ -727,25 +749,28 @@ def watch(sim: Simulation, max_episodes: int = None):
 
     while max_episodes is None or i < max_episodes:
         # longitude: float, latitude: float, dir_angle_offset: float, speed: float
-        # has_valid = False
-        # while not has_valid:
-        #     sim.sim_random_reset()
-        #     sim.update_sim_status()
-        #     has_valid = sim.get_sim_status()[1]
-
+        has_valid = False
+        print("Getting random state")
+        while not has_valid:
+            sim.sim_random_reset()
+            sim.update_sim_status()
+            has_valid = sim.get_sim_status()[1]
+        print("running")
         done = False
         steps = 0
 
+        graphics.render_simulation(sim=sim)
+        graphics.show()
         # run episode
         while not done and steps < MAX_STEPS:
             state, action, reward, next_state = sim.sim_step()
 
             sim.update_sim_status()
             _, in_lane, in_motion = sim.get_sim_status()
-            done = not in_lane or not in_motion
+            # done = not in_lane or not in_motion
 
-            graphics.render_simulation(sim=sim)
-            graphics.show()
+            plt.pause(0.01)
+            print(in_lane, in_motion)
             input()
             steps += 1
         i += 1
@@ -754,9 +779,12 @@ def watch(sim: Simulation, max_episodes: int = None):
 import traceback
 import json
 
+
 def main_trad():
     try:
-        rewards, steps = traditional_training(15, 10, with_grouping=False)
+        rewards, steps = traditional_training(
+            ".models/warmup/test/agent_warmup-0.pt", 20, 5, with_grouping=False
+        )
 
         print("Showing test results")
         rlog, slog = perf_test(sim, 50)
@@ -764,12 +792,12 @@ def main_trad():
         with open("trad-meta.json", "w") as f:
             json.dump(
                 {
-                    "train-rewards": rewards, 
+                    "train-rewards": rewards,
                     "train-steps": steps,
                     "test-rewards": rlog,
                     "test-steps": slog,
                 },
-                f
+                f,
             )
 
         data = np.array(slog)
@@ -784,6 +812,7 @@ def main_trad():
 
     except KeyboardInterrupt:
         print("ending early.")
+        sim.agent.save(".models/test", "broken")
     except Exception as e:
         print("Failure occurred!")
         print(traceback.print_exc())
@@ -792,28 +821,30 @@ def main_trad():
 
 def main_sembas():
     init_crit_step_c = 75
-    
+
     # init_crit_step_c = 30
     # session = sembas_training(100, 500, init_crit_step_c)
     try:
         # wup_path = '.models/warmup/warmup.model/agent_latest.pt'
         wup_path = None
-        rewards, steps = sembas_training(15, init_crit_step_c, 10, plot_samples=False, wup_override=wup_path)
+        rewards, steps = sembas_training(
+            5, init_crit_step_c, 20, plot_samples=False, wup_override=wup_path
+        )
         print(rewards)
         print(steps)
 
         print("Showing test results")
-        rlog, slog = perf_test(sim, 50)
+        rlog, slog = perf_test(sim, 10)
 
         with open("meta.json", "w") as f:
             json.dump(
                 {
-                    "train-rewards": rewards, 
+                    "train-rewards": rewards,
                     "train-steps": steps,
                     "test-rewards": rlog,
                     "test-steps": slog,
                 },
-                f
+                f,
             )
 
         data = np.array(slog)
@@ -834,29 +865,17 @@ def main_sembas():
         print(e)
 
 
-def review():
-    sim.agent.load("./checkpoints/agent_latest.pt")
-
-    rlog, slog = perf_test(sim, 50)
-
-    with open("meta.json", "w") as f:
-        json.dump(
-            {
-                "test-rewards": rlog,
-                "test-steps": slog,
-            },
-            f
-        )
-
-    data = np.array(slog)
-    print("Step count stats:", data.mean(), data.min(), data.max())
-
 if __name__ == "__main__":
+    # step_count_test(sim, 5)
     # main_trad()
-    main_sembas()
+    # main_sembas()
     # sim.agent.load(".models/warmup/warmup.model/agent_latest.pt")
     # rlog, slog = perf_test(sim, 50)
     # data = np.array(slog)
     # print("Step count stats:", data.mean(), data.min(), data.max())
+
+    # sim.agent.load("checkpoints/agent_latest.pt")
+    # watch(sim)
+    # 201 29 348
 
     input("Press enter to continue")
