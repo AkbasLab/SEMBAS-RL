@@ -253,9 +253,9 @@ class NewAgent(Agent):
         # v1: [cos(hd), sin(hd)], v2: [cos(whd), sin(whd)]
 
         angle_from_wp = np.acos(
-            np.array([np.cos(heading_abs), np.sin(heading_abs)]).dot(
+            np.clip(np.array([np.cos(heading_abs), np.sin(heading_abs)]).dot(
                 np.array([np.cos(wp_heading), np.sin(wp_heading)])
-            )
+            ), -1.0, 1.0)
         )
         if angle_from_wp > 0.9 * np.pi:
             angle_reward = -10
