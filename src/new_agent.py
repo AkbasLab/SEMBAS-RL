@@ -102,6 +102,7 @@ class NewAgent(Agent):
         min_exploration_noise=0.1,
         max_exploration_noise=0.3,
         lr_schedule: list[tuple[float, tuple[float, float]]] = None,
+        use_noise=True,
         debug=False,
     ):
         """
@@ -134,11 +135,12 @@ class NewAgent(Agent):
         self.batch_size = batch_size
         self.min_exploration_noise = min_exploration_noise
         self.max_exploration_noise = max_exploration_noise
-        self.exploration_noise = exploration_noise
+        self.exploration_noise = exploration_noise if use_noise else 0
         self.lr_schedule = (
             sorted(lr_schedule, key=lambda x: x[0]) if lr_schedule else None
         )
         self.lr_index = 0
+        self.use_noise = use_noise
 
         self.debug = debug
 
@@ -166,11 +168,14 @@ class NewAgent(Agent):
         self.training = True
         carlos_logging.log_message("NewAgent initialized")
 
-    def update_expl_noise(self, episode: int, max_episodes: int):
-        self.exploration_noise = max(
-            self.min_exploration_noise,
-            self.max_exploration_noise * (1 - episode / max_episodes),
-        )
+    def update_expl_noise(self, step: int, max_steps: int):
+        if self.use_noise:
+            self.exploration_noise = max(
+                self.min_exploration_noise,
+                self.max_exploration_noise * (1 - step / max_steps),
+            )
+        else:
+            self.exploration_noise = 0
 
     def update_lr(self, episode: int, max_episodes: int):
         if (
@@ -253,9 +258,13 @@ class NewAgent(Agent):
         # v1: [cos(hd), sin(hd)], v2: [cos(whd), sin(whd)]
 
         angle_from_wp = np.acos(
-            np.clip(np.array([np.cos(heading_abs), np.sin(heading_abs)]).dot(
-                np.array([np.cos(wp_heading), np.sin(wp_heading)])
-            ), -1.0, 1.0)
+            np.clip(
+                np.array([np.cos(heading_abs), np.sin(heading_abs)]).dot(
+                    np.array([np.cos(wp_heading), np.sin(wp_heading)])
+                ),
+                -1.0,
+                1.0,
+            )
         )
         if angle_from_wp > 0.9 * np.pi:
             angle_reward = -10
@@ -303,7 +312,6 @@ class NewAgent(Agent):
 
             print("Final reward", reward)
 
-            
         return torch.tensor([reward])
 
     def train_step(self, prev_state, action, reward, next_state, done):
