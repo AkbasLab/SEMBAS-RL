@@ -94,6 +94,45 @@ def interpolate_points(points: list[Point], t: float) -> Point:
     return points[-1]
 
 
+def get_2d_rotation_matrix(angle: float) -> np.ndarray:
+    return np.array(
+        [
+            [np.cos(angle), -np.sin(angle)],
+            [np.sin(angle), np.cos(angle)],
+        ]
+    )
+
+
+def rotate_point_around_pivot(
+    pivot: np.ndarray, point: np.ndarray, angle: float
+) -> "Point":
+    """Returns the new point that is rotated around a center point by a given angle.
+
+    Args:
+        point (Point): Center point of the rotation.
+        rotation_angle (float): Angle, in raidans, to rotate from the center point to get the heading point.
+        Positive values rotate to the left, negative values rotate to the right. pi = -pi is facing backwards.
+
+    Returns:
+        Point: New heading of the vehicle
+    """
+    # clip angle to [-pi, pi]
+    angle = np.clip(float(angle), -np.pi, np.pi)
+
+    # Compute the direction vector from (x1, y1) to (x2, y2)
+    s = point - pivot
+
+    # Rotate the vector
+    rot_matrix = get_2d_rotation_matrix(angle)
+
+    # Apply rotation matrix
+    new_s = rot_matrix * s
+
+    # Create the offset point
+
+    return pivot + new_s
+
+
 def get_direction(points: list[Point], t: float, delta: float = 0.01) -> Point:
     """Given a list of points and a parameter t, returns the direction vector at that point.
     The direction vector is calculated by taking the difference between the points at t - delta and t + delta.
