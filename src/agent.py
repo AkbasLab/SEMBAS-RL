@@ -34,19 +34,17 @@ class Agent:
         sensor_data = self.sensor_array.sense(env, vehicle)
         return sensor_data
 
-    def save(self, dir_path="./checkpoints", tag="latest"):
-        os.makedirs(dir_path, exist_ok=True)
+    def save(self, path="./checkpoints/latest_agent.pt"):
+        os.makedirs(path, exist_ok=True)
         torch.save(
             {
                 "actor_state_dict": self.model.actor.state_dict(),
                 "critic_state_dict": self.model.critic.state_dict(),
                 "optimizer_state_dict": self.optim.state_dict(),
             },
-            os.path.join(dir_path, f"agent_{tag}.pt"),
+            path,
         )
-        carlos_logging.log_message(
-            f"Saved model checkpoint to {dir_path}/agent_{tag}.pt"
-        )
+        carlos_logging.log_message(f"Saved model checkpoint to {path}")
 
     def load(self, path):
         checkpoint = torch.load(path)
