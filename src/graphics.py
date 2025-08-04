@@ -59,13 +59,11 @@ def plot_vehicle(vehicle: Vehicle):  # Tested as of 3/29/2025
     ax = plt.gca()
     # Plot vehicle body
     vehicle.update_body()
-    body_x, body_y = list_points_as_values(vehicle.body.corners)
+    body_x, body_y = vehicle.body.corners.T
     ax.fill(body_x, body_y, "b", label="Vehicle Body")
 
     # Plot vehicle center point
-    ax.plot(
-        vehicle.center_point.x, vehicle.center_point.y, "ro", label="Vehicle Center"
-    )
+    ax.plot(*vehicle.center_point.T, "ro", label="Vehicle Center")
 
     # Plot vehicle heading with arrow
     # Getting heading point and scalling by 10.0 so that it is visible.
@@ -97,10 +95,10 @@ def plot_sensor_detections(detection_points, detection_distances):
     label = "Sensor Detection"
     for i, point in enumerate(detection_points):
         if point is not None:
-            ax.plot(point.x, point.y, "kx", label=label)
+            ax.plot(*point, "kx", label=label)
             ax.annotate(
                 text=f"{detection_distances[i]: .2f}",
-                xy=(point.x, point.y),
+                xy=point,
                 fontsize=8,
                 ha="right",
             )
