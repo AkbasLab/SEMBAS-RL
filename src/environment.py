@@ -1,7 +1,6 @@
 # environment.py
 import torch
 from lane import Lane
-from point import Point
 import numpy as np
 import vehicle_placement as VP
 
@@ -23,7 +22,7 @@ class Environment:
         """
         self.lane = lane
 
-    def point_in_lane(self, point: Point) -> bool:
+    def point_in_lane(self, point: np.ndarray) -> bool:
         """Checks if a given point is within the lane.
 
         Args:
@@ -35,7 +34,7 @@ class Environment:
         center_dist, _, _ = self.point_position_in_lane(point)
         return center_dist >= 0
 
-    def point_position_in_lane(self, point: Point) -> tuple[float, float, float]:
+    def point_position_in_lane(self, point: np.ndarray) -> tuple[float, float, float]:
         """Calculates the position of a given point in the lane.
 
         Parameters:
@@ -81,7 +80,7 @@ class Environment:
         longitude: float,
         latitude: float,
         angle_offset: float,
-    ) -> tuple[Point, float]:
+    ) -> tuple[np.ndarray, float]:
         """Given a longitude and latitude, both from 0 to 1, returns a point inside the lane longitudinal distance along the lane and lateral distance between the lane edges.
 
         Args:
@@ -108,7 +107,7 @@ class Environment:
 
         lane_direction = VP.get_direction(self.lane.center_line, longitude)
 
-        heading = np.atan2(lane_direction.y, lane_direction.x) + angle_offset
+        heading = np.atan2(lane_direction[1], lane_direction[0]) + angle_offset
 
         return center_point, heading
 
@@ -116,7 +115,9 @@ class Environment:
 ############ Functions to calculate distance between points and lines ################
 
 
-def determine_distance(point: Point, segment_pt1: Point, segment_pt2: Point):
+def determine_distance(
+    point: np.ndarray, segment_pt1: np.ndarray, segment_pt2: np.ndarray
+):
     """
     Compute the perpendicular distance of point3 from the line segment defined by segment_pt1 and segment_pt2.
 
@@ -130,20 +131,15 @@ def determine_distance(point: Point, segment_pt1: Point, segment_pt2: Point):
         float: The perpendicular distance from point3 to the line segment.
         Point: The closest point on the line segment to point3.
     """
-    x1, y1 = segment_pt1.values()
-    x2, y2 = segment_pt2.values()
-    x3, y3 = point.values()
 
     # Compute the line direction vector
-    dx = x2 - x1
-    dy = y2 - y1
+    sl = segment_pt2 - segment_pt1
+    sp = point - segment_pt1
 
     # Compute the projection of point3 onto the line
-    # if (dx**2 + dy**2) == 0:
-    #     print("x1-2, y1-2, dx, dy:", (x1, x2), (y1, y2), (dx, dy))
     t = (
-        ((x3 - x1) * dx + (y3 - y1) * dy) / (dx**2 + dy**2)
-        if (dx**2 + dy**2) != 0
+        np.linalg.norm(sp - sl * np.dot(sp, sl) / np.dot(sl, sl))
+        if np.linalg.norm(sl) != 0
         else 0
     )
 
@@ -151,16 +147,15 @@ def determine_distance(point: Point, segment_pt1: Point, segment_pt2: Point):
     t = max(0, min(1, t))
 
     # Compute the closest point on the segment
-    closest_x = x1 + t * dx
-    closest_y = y1 + t * dy
+    closest = segment_pt1 + sl * t
 
     # Compute the perpendicular distance
-    distance = np.sqrt((x3 - closest_x) ** 2 + (y3 - closest_y) ** 2)
+    distance = np.linalg.norm(closest - point)
 
     return distance
 
 
-def closest_points(point: Point, curve_pts: list[Point]):
+def closest_points(point: np.ndarray, curve_pts: list[np.ndarray]):
     """Calculates the distance between the given point and the given list of points.
 
     Args:
@@ -171,12 +166,10 @@ def closest_points(point: Point, curve_pts: list[Point]):
         distance (float): The distance the point is from the closest point in the given list of points.
         nearest_points (list[Point]): List of the two closest points to the given point.
     """
-    px, py = point.values()
-    curve_x = np.array([pt.x for pt in curve_pts])
-    curve_y = np.array([pt.y for pt in curve_pts])
+    curve_pts = np.vstack(curve_pts)  # (pt, x|y)
 
     # Calcualates all distances
-    distances = np.sqrt((curve_x - px) ** 2 + (curve_y - py) ** 2)
+    distances = np.linalg.norm(curve_pts - point, axis=1)
     # The index of the nearest point
     nearest_idx = np.argmin(distances)
     # Getting next closest distance
@@ -189,7 +182,7 @@ def closest_points(point: Point, curve_pts: list[Point]):
     return [pt1, pt2], nearest_idx
 
 
-def calc_distance(point: Point, curve_pts: list[Point]):
+def calc_distance(point: np.ndarray, curve_pts: list[np.ndarray]):
     """Calculates the distance between the given point and the given list of points.
 
     Args:

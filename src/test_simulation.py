@@ -8,13 +8,12 @@ import layout_utils
 import math
 import graphics
 import matplotlib.pyplot as plt
-from point import Point
 import numpy as np
 
 
 def init_sim():
     # lane_ctrl_points, lane_width, closed_loop = layout_utils.load_lane_from_file("./layouts/open_loop_0.txt")
-    lane_ctrl_points = [Point(100, 100), Point(300, 100)]
+    lane_ctrl_points = [np.ndarray(100, 100), np.ndarray(300, 100)]
     lane = Lane(control_points=lane_ctrl_points, lane_width=12.0, closed_loop=False)
     env = Environment(lane)
     v = Vehicle()

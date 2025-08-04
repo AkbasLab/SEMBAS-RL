@@ -1,6 +1,5 @@
 from typing import Literal
 from new_agent import NewAgent
-from point import Point
 from sembas_utils import map_norm, run_until_phase
 from vehicle import Vehicle
 from lane import Lane
@@ -124,15 +123,12 @@ def setup_sim():
 
     #### Simulation Initialization ####
     sim = Simulation(vehicle=vehicle, environment=env, agent=agent, dt=TIME_STEP_SEC)
-    x = torch.tensor(
-        [
-            INITIAL_LONGITUDE,
-            INITIAL_LATITUDE,
-            INITIAL_DIR_ANGLE_OFFSET,
-            INITIAL_SPEED_MPH,
-        ]
+    sim.sim_reset(
+        INITIAL_LONGITUDE,
+        INITIAL_LATITUDE,
+        INITIAL_DIR_ANGLE_OFFSET,
+        INITIAL_SPEED_MPH,
     )
-    sim.sim_reset(*x)
 
     return sim
 
@@ -167,8 +163,7 @@ def run_episode(
     display_mode: Literal["off", "play", "step"] = "off",
 ):
     "Runs the episode (if valid) and returns step history and class."
-    xt = torch.tensor(x)
-    sim.sim_reset(*xt)
+    sim.sim_reset(*x)
     sim.update_sim_status()
     is_valid = sim.get_sim_status()[1]
 
@@ -230,13 +225,17 @@ def train_standard(
     return episode_log
 
 
-sim = setup_sim()
-ep_log = train_standard(sim, 5000)
-print([ep.num_steps for ep in ep_log])
+# sim = setup_sim()
+# ep_log = train_standard(sim, 100)
+# print([ep.num_steps for ep in ep_log[-10:]])
 
-run_episode(
-    map_norm((SIM_LOW, SIM_HIGH), np.array([0.5] * 4)),
-    sim,
-    display_mode="play",
-    train=False,
-)
+import pstats
+
+pstats.Stats("profile.out").sort_stats("cumtime").print_stats(20)
+
+# run_episode(
+#     map_norm((SIM_LOW, SIM_HIGH), np.array([0.5] * 4)),
+#     sim,
+#     display_mode="play",
+#     train=False,
+# )

@@ -1,8 +1,5 @@
-from point import Point
 from lane import Lane
 import numpy as np
-
-from vehicle import Vehicle
 
 
 def lateral_adjustment(latitude: float, angle_offset: float) -> float:
@@ -56,7 +53,7 @@ def open_loop_adjustment(
     return angle_offset
 
 
-def interpolate_points(points: list[Point], t: float) -> Point:
+def interpolate_points(points: list[np.ndarray], t: float) -> np.ndarray:
     """Given a list of points and a parameter t, returns the interpolated point at that parameter t.
     The parameter t is a value between 0 and 1, where 0 corresponds to the first point in the list and 1 corresponds to the last point.
     The interpolation is done by calculating the distance along the path defined by the points and finding the corresponding point.
@@ -73,22 +70,18 @@ def interpolate_points(points: list[Point], t: float) -> Point:
     if t >= 1:
         return points[-1]
 
-    total_dist = sum(
-        np.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y)
-        for i in range(len(points) - 1)
-    )
+    total_dist = sum(np.linalg.norm(b - a) for a, b in zip(points[:-1], points[1:]))
 
     target_dist = t * total_dist
     acc_dist = 0.0
 
-    for i in range(len(points) - 1):
-        p1, p2 = points[i], points[i + 1]
-        seg_len = np.hypot(p2.x - p1.x, p2.y - p1.y)
+    for a, b in zip(points[:-1], points[1:]):
+        s = b - a
+        seg_len = np.linalg.norm(s)
         if acc_dist + seg_len >= target_dist:
             local_t = (target_dist - acc_dist) / seg_len
-            x = p1.x + local_t * (p2.x - p1.x)
-            y = p1.y + local_t * (p2.y - p1.y)
-            return Point(x, y)
+
+            return a + s * local_t
         acc_dist += seg_len
 
     return points[-1]
@@ -105,7 +98,7 @@ def get_2d_rotation_matrix(angle: float) -> np.ndarray:
 
 def rotate_point_around_pivot(
     pivot: np.ndarray, point: np.ndarray, angle: float
-) -> "Point":
+) -> "np.ndarray":
     """Returns the new point that is rotated around a center point by a given angle.
 
     Args:
@@ -117,7 +110,7 @@ def rotate_point_around_pivot(
         Point: New heading of the vehicle
     """
     # clip angle to [-pi, pi]
-    angle = np.clip(float(angle), -np.pi, np.pi)
+    # angle = np.clip(float(angle), -np.pi, np.pi)
 
     # Compute the direction vector from (x1, y1) to (x2, y2)
     s = point - pivot
@@ -129,11 +122,12 @@ def rotate_point_around_pivot(
     new_s = rot_matrix * s
 
     # Create the offset point
-
     return pivot + new_s
 
 
-def get_direction(points: list[Point], t: float, delta: float = 0.01) -> Point:
+def get_direction(
+    points: list[np.ndarray], t: float, delta: float = 0.01
+) -> np.ndarray:
     """Given a list of points and a parameter t, returns the direction vector at that point.
     The direction vector is calculated by taking the difference between the points at t - delta and t + delta.
 
@@ -149,13 +143,12 @@ def get_direction(points: list[Point], t: float, delta: float = 0.01) -> Point:
     t2 = min(1.0, t + delta)
     p1 = interpolate_points(points, t1)
     p2 = interpolate_points(points, t2)
-    dx = p2.x - p1.x
-    dy = p2.y - p1.y
-    norm = np.hypot(dx, dy)
-    return Point(dx / norm, dy / norm) if norm != 0 else Point(0.0, 0.0)
+    s = p2 - p1
+    norm = np.linalg.norm(s)
+    return s / norm if norm != 0 else np.ndarray(0.0, 0.0)
 
 
-def get_center_point(lane: Lane, longitude: float, latitude: float) -> Point:
+def get_center_point(lane: Lane, longitude: float, latitude: float) -> np.ndarray:
     """Given a lane and a longitude and latitude, returns the center point in the lane at the coordinates provided.
 
     Args:
@@ -171,8 +164,5 @@ def get_center_point(lane: Lane, longitude: float, latitude: float) -> Point:
     right_pt = interpolate_points(lane.right_edge, longitude)
 
     # 2. Linearly interpolate across the lane from left to right
-    x = left_pt.x + (right_pt.x - left_pt.x) * latitude
-    y = left_pt.y + (right_pt.y - left_pt.y) * latitude
-    center_pt = Point(x, y)
 
-    return center_pt
+    return left_pt + (right_pt - left_pt) * latitude

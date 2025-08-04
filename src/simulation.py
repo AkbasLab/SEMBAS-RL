@@ -2,7 +2,6 @@
 from torch import Tensor
 import torch
 from agent import Agent
-from point import Point
 from vehicle import Vehicle
 from environment import Environment
 import random
@@ -35,7 +34,7 @@ class Simulation:
     def _get_initial_wp_index(self):
         i = self.environment.lane.nearest_neighbor(self.vehicle.center_point)
         lp = self.environment.lane.control_points[i]
-        s = lp.to_tensor() - self.vehicle.center_point.to_tensor()
+        s = lp - self.vehicle.center_point
 
         is_ahead = self.vehicle.get_direction_vector().dot(s) >= 0
 
@@ -43,7 +42,7 @@ class Simulation:
 
         j = (i + 1) % num_points
         lp_nxt_hyp = self.environment.lane.control_points[j]
-        s = lp_nxt_hyp.to_tensor() - self.vehicle.center_point.to_tensor()
+        s = lp_nxt_hyp - self.vehicle.center_point
         is_fwd = self.vehicle.get_direction_vector().dot(s) >= 0
 
         if is_ahead:
@@ -106,8 +105,9 @@ class Simulation:
         )
 
     def get_next_waypoint(self):
-        distance = self.vehicle.center_point.distanceTo(
+        distance = np.linalg.norm(
             self.environment.lane.control_points[self._wp_index]
+            - self.vehicle.center_point
         )
         if distance <= self.environment.lane.lane_width * self.WP_MIN_DIST_FACTOR:
             self._wp_index = (self._wp_index + self._wp_dir) % len(
@@ -116,10 +116,10 @@ class Simulation:
 
         return self.environment.lane.control_points[self._wp_index]
 
-    def calc_wp_heading(self, wp: Point) -> float:
+    def calc_wp_heading(self, wp: np.ndarray) -> float:
         sp = wp - self.vehicle.center_point
 
-        return np.atan2(sp.y, sp.x)
+        return np.atan2(sp[1], sp[0])
 
     def get_state(self) -> Tensor:
         """
@@ -138,7 +138,7 @@ class Simulation:
                 / self.vehicle.fps_to_mph(self.vehicle.max_speed_fps),
                 self.vehicle.abs_heading / np.pi,
                 wp_heading,  # TODO : try with and without WP heading in state vector
-                *(torch.tensor(sensor_data) / 200.0),
+                *(np.array(sensor_data) / 200.0),
             ],
             dtype=torch.float32,
         )
@@ -166,7 +166,7 @@ class Simulation:
             print("Steer and acc", steering, acceleration)
             print("Sensors", state[2:])
 
-        self.vehicle.update_position(steering, acceleration, self.dt)
+        self.vehicle.update_position(steering.item(), acceleration.item(), self.dt)
 
         self.agent.sensors.update_sensors(
             self.vehicle.center_point, self.vehicle.abs_heading

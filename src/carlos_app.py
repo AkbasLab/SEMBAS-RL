@@ -1,6 +1,5 @@
 # app.py
 from new_agent import NewAgent
-from point import Point
 from vehicle import Vehicle
 from lane import Lane
 from environment import Environment

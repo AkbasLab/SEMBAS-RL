@@ -1,4 +1,3 @@
-from point import Point
 from environment import Environment
 import numpy as np
 import sensor_detection as SD
@@ -33,7 +32,7 @@ class SensorArray:
         ]
 
     def update_sensors(
-        self, origin_point: Point, direction_angle: float
+        self, origin_point: np.ndarray, direction_angle: float
     ):  # Tested as of 3/29/2025
         """Updates the sensors in the array based on the given origin point and direction vector.
 

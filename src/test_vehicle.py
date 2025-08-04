@@ -1,11 +1,10 @@
 from vehicle import Vehicle
-from point import Point
 import numpy as np
 
 
 def test_going_left():
     v = Vehicle()
-    center_point = Point(0, 0)
+    center_point = np.ndarray(0, 0)
     heading = np.pi / 2
     speed = 0.0
     v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
@@ -25,7 +24,7 @@ def test_going_left():
 
 def test_going_right():
     v = Vehicle()
-    center_point = Point(0, 0)
+    center_point = np.ndarray(0, 0)
     heading = np.pi / 2
     speed = 0.0
     v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
@@ -45,7 +44,7 @@ def test_going_right():
 
 def test_going_straight():
     v = Vehicle()
-    center_point = Point(0, 0)
+    center_point = np.ndarray(0, 0)
     heading = np.pi / 2
     speed = 0.0
     v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
@@ -69,7 +68,7 @@ def test_going_straight():
 
 def test_breaking():
     v = Vehicle()
-    center_point = Point(0, 0)
+    center_point = np.ndarray(0, 0)
     heading = np.pi / 2
     speed = 25.0
     v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)
@@ -83,7 +82,7 @@ def test_breaking():
 
 def test_no_movement():
     v = Vehicle()
-    center_point = Point(0, 0)
+    center_point = np.ndarray(0, 0)
     heading = np.pi / 2
     speed = 0
     v.vehicle_setup(center_point=center_point, abs_heading=heading, speed_mph=speed)

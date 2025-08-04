@@ -1,6 +1,6 @@
-from point import Point
 from sensor import Sensor
 from lane import Lane
+import numpy as np
 
 
 def get_lane_detection(sensor: Sensor, lane: Lane) -> float:
@@ -57,7 +57,9 @@ def get_lane_detection(sensor: Sensor, lane: Lane) -> float:
     return closest_point, intersection
 
 
-def intersections_on_line_segment(pt_list: list[Point], pt1: Point, pt2: Point):
+def intersections_on_line_segment(
+    pt_list: np.ndarray, pt1: np.ndarray, pt2: np.ndarray
+):
     """Takes in a list of points and two points. Returns the intersection points and distances between the two points.
 
     Args:
@@ -70,21 +72,11 @@ def intersections_on_line_segment(pt_list: list[Point], pt1: Point, pt2: Point):
     """
     distances = []
     points = []
-    for i in range(len(pt_list) - 1):
-        intersection = line_segment_intersection(pt1, pt2, pt_list[i], pt_list[i + 1])
-        # print(f"closest: {closest_distance}")
+    # for i in range(len(pt_list) - 1):
+    for a, b in zip(pt_list[:-1], pt_list[1:]):
+        intersection = line_segment_intersection(pt1, pt2, a, b)
         if intersection is not None:
-
-            # print(intersection)
-            # distance = (intersection - pt1).norm()
-            dist = intersection.distanceTo(pt1)
-            # print(dist)
-            # distance = np.linalg.norm([dist.x, dist.y])
-            # distance = np.linalg.norm([p1.x, p1.y])
-            # if dist < closest_distance:
-            #     closest_distance = dist
-            #     closest_point = intersection
-            #     print(f"closest: {closest_distance}")
+            dist = np.linalg.norm(pt1 - intersection)
             distances.append(dist)
             points.append(intersection)
 
@@ -94,11 +86,18 @@ def intersections_on_line_segment(pt_list: list[Point], pt1: Point, pt2: Point):
     else:
         closest_point = None
         closest_distance = -1.0
+
     return closest_point, closest_distance
 
 
+def cross(a: np.ndarray, b: np.ndarray):
+    return a[0] * b[1] - a[1] * b[0]
+
+
 # Function to check if two line segments intersect
-def line_segment_intersection(p1: Point, p2: Point, q1: Point, q2: Point):
+def line_segment_intersection(
+    p1: np.ndarray, p2: np.ndarray, q1: np.ndarray, q2: np.ndarray
+):
     """Takes in start point and end point of two lines (p1, p2) and (q1, q2).
 
     Args:
@@ -116,6 +115,7 @@ def line_segment_intersection(p1: Point, p2: Point, q1: Point, q2: Point):
     q_minus_p = q1 - p1
     r_cross_s = cross(r, s)
     qmp_cross_r = cross(q_minus_p, r)
+    # qmp_cross_r = cross(q_minus_p, r)
 
     if r_cross_s == 0:
         return None  # Parallel or collinear
@@ -128,9 +128,3 @@ def line_segment_intersection(p1: Point, p2: Point, q1: Point, q2: Point):
         intersection_point = p1 + t * r
 
     return intersection_point
-
-
-def cross(v1: Point, v2: Point) -> float:
-    """Calculates the cross product of two vectors."""
-
-    return v1.x * v2.y - v1.y * v2.x

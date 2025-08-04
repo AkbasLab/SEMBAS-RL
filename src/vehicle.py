@@ -1,7 +1,6 @@
-import torch
-from point import Point
 import numpy as np
-import math
+
+from vehicle_placement import rotate_point_around_pivot
 
 
 class Vehicle:
@@ -51,7 +50,7 @@ class Vehicle:
         self.max_breaking_fps2 = 15.0
 
     def vehicle_setup(
-        self, center_point: Point, abs_heading: float, speed_mph: float
+        self, center_point: np.ndarray, abs_heading: float, speed_mph: float
     ):  # Tested as of 3/29/2025
         """Sets up the vehicle based on the given center point, heading angle and speed.
 
@@ -118,7 +117,7 @@ class Vehicle:
         """Converts given fps^2 value to mph^2"""
         return value_fps2 * self.fps2_to_mph2_conversion
 
-    def get_direction_vector(self, angle: np.float32 = None) -> torch.Tensor:
+    def get_direction_vector(self, angle: np.float32 = None) -> np.ndarray:
         """Gets the direction vector x, y for a given angle. If angle is None, uses the vehicles heading angle.
 
         Args:
@@ -128,33 +127,7 @@ class Vehicle:
             torch.Tensor: Tensor containing x, y values of the direction vector
         """
         angle = angle or self.abs_heading
-        return torch.tensor(
-            [np.cos(float(angle)), np.sin(float(angle))], dtype=torch.float32
-        )
-
-    def get_heading_point(self, angle: float = None) -> Point:
-        """Returns the point of the center point of the vehicle updated by the directional vector.
-
-        Args:
-            angle (float, optional): Direction angle. Defaults to None.
-
-        Returns:
-            Point: Point object with x, y values for the point at the center offset by the direction vector.
-        """
-        angle = angle or self.abs_heading
-        heading_direction = np.array(self.get_direction_vector(angle))
-        hx = self.center_point.x + heading_direction[0]
-        hy = self.center_point.y + heading_direction[1]
-        return Point(hx, hy)
-
-    # def calculate_velocity(self) -> torch.Tensor:  # Tested as of 3/29/2025
-    #     """Calculates the velocity of the vehicle based on the center point, heading point, and speed.
-
-    #     Returns:
-    #         float: Velocity of the vehicle in miles per hour.
-    #     """
-    #     direction = self.get_direction()
-    #     return direction * self.speed_fps
+        return np.array([np.cos(float(angle)), np.sin(float(angle))])
 
     def update_position(
         self, steering_rad: float, acceleration_fps2: float, dt_sec: float
@@ -171,8 +144,8 @@ class Vehicle:
         # Updating acceleration by clipping by the vehicle max breaking and acceleration capabilities
         self.acceleration_fps2 = np.clip(
             acceleration_fps2,
-            -float(self.max_breaking_fps2),
-            float(self.max_acceleration_fps2),
+            -self.max_breaking_fps2,
+            self.max_acceleration_fps2,
         )
 
         # v = vo + a t
@@ -193,9 +166,7 @@ class Vehicle:
             0.5 * self.acceleration_fps2 * (dt_sec**2)
         )
         # Update position (move center point based on speed)
-        cx = self.center_point.x + new_direction[0] * distance
-        cy = self.center_point.y + new_direction[1] * distance
-        self.center_point = Point(cx, cy)
+        self.center_point += new_direction * distance
 
         # Update heading
         self.abs_heading = new_heading
@@ -203,12 +174,11 @@ class Vehicle:
         # Update speed
         self.speed_fps = new_speed
 
-        # print(self.abs_heading, self.speed_fps, steering_rad, acceleration_mph2)
-
         # Adding the distance travelled in feet
         self.distance_travelled_ft += distance
 
-        # Rebuilding the body after updating position
+    def update_body(self):
+        "Rebulids body (only needed for graphics)"
         self.body.build_body(self.center_point, self.abs_heading)
 
 
@@ -217,18 +187,19 @@ class VehicleBody:
         self.length = vehicle_length
         self.width = vehicle_width
         self.set_base_corners()
+        self.corners: np.ndarray = None
 
     def set_base_corners(self):
         half_length = self.length / 2
         half_width = self.width / 2
         self.base_corners = [
-            Point(half_length, -half_width),  # Front Left
-            Point(half_length, half_width),  # Front Right
-            Point(-half_length, half_width),  # Back Right
-            Point(-half_length, -half_width),  # Back Left
+            np.array([half_length, -half_width]),  # Front Left
+            np.array([half_length, half_width]),  # Front Right
+            np.array([-half_length, half_width]),  # Back Right
+            np.array([-half_length, -half_width]),  # Back Left
         ]
 
-    def build_body(self, center_point: Point, turn_angle: float):
+    def build_body(self, center_point: np.ndarray, turn_angle: float):
         """Creates the vehicle corners based on the center point and turn angle.
 
         Corners are in the order of: Front left, front right, back right, back left
@@ -238,8 +209,10 @@ class VehicleBody:
             turn_angle (float): Heading angle of the vehicle.
 
         """
-        self.corners = []
+        corners = []
         for c in self.base_corners:
             c = c + center_point
-            c = c.rotate_point_by_radians(center_point, turn_angle)
-            self.corners.append(c)
+            c = rotate_point_around_pivot(center_point, c, turn_angle)
+            corners.append(c)
+
+        self.corners = np.array(corners)

@@ -1,5 +1,4 @@
 import graphics
-from point import Point
 from sensor_array import SensorArray
 from sensor import Sensor
 from lane import Lane
@@ -10,7 +9,7 @@ import math
 
 def test_calc_end_point():
     s = Sensor(sensor_length=50, angle_offset=math.pi / 2)
-    s.update_sensor(Point(200, 200), math.pi / 2)
+    s.update_sensor(np.ndarray(200, 200), math.pi / 2)
     assert s.end_point.x == 150, "Sensor end point X does not match expected value."
     assert s.end_point.y == 200, "Sensor end point Y does not mathc expected value."
     print("Sensor Test: End point calculation PASSED.")
@@ -39,10 +38,12 @@ def test_angle_offsets():
 
 def test_sense():
     sa = SensorArray(num_sensors=5, sensor_length=50, sensor_angle_spread=math.pi)
-    lane = Lane([Point(50, 50), Point(150, 50)], lane_width=12, closed_loop=False)
+    lane = Lane(
+        [np.ndarray(50, 50), np.ndarray(150, 50)], lane_width=12, closed_loop=False
+    )
     env = Environment(lane=lane)
     vehicle = Vehicle()
-    center_point = Point(50, 50)
+    center_point = np.ndarray(50, 50)
     heading = 0.0
     vehicle.vehicle_setup(
         center_point=center_point, abs_heading=heading, speed_mph=25.0

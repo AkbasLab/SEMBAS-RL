@@ -1,6 +1,5 @@
 # app.py
 from new_agent import NewAgent
-from point import Point
 from sembas_utils import map_norm, run_until_phase
 from vehicle import Vehicle
 from lane import Lane

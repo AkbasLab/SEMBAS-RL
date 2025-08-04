@@ -3,12 +3,13 @@ from lane import Lane
 from simulation import Simulation
 from vehicle import Vehicle
 from environment import Environment
-from point import Point
 from sensor_array import SensorArray
 import numpy as np
 
 
-def list_points_as_values(point_list: list[Point]) -> tuple[list[float], list[float]]:
+def list_points_as_values(
+    point_list: list[np.ndarray],
+) -> tuple[list[float], list[float]]:
     """Takes in a list of points and returns 2 lists: x values and y values.
 
     Args:
@@ -17,12 +18,8 @@ def list_points_as_values(point_list: list[Point]) -> tuple[list[float], list[fl
     Returns:
         tuple(list[float], list[float]): X values and Y values of the given list of points.
     """
-    x = []
-    y = []
-    for p in point_list:
-        x.append(p.x)
-        y.append(p.y)
-    return x, y
+
+    return np.array(point_list).T
 
 
 def plot_environment(environment: Environment):  # Tested as of 3/29/2025
@@ -36,26 +33,21 @@ def plot_lane(lane: Lane):  # Tested as of 3/29/2025
     ax = plt.gca()
 
     # Plot center line
-    center_x, center_y = list_points_as_values(lane.center_line)
-    ax.plot(center_x, center_y, "k--", label="Center Line")
+    ax.plot(*lane.center_line.T, "k--", label="Center Line")
 
     # Plot control points
-    ctrl_x, ctrl_y = list_points_as_values(lane.control_points)
-    ax.plot(ctrl_x, ctrl_y, "ro", label="Control Points")
-    for i, (x, y) in enumerate(zip(ctrl_x, ctrl_y)):
-        ax.annotate(text=f"{i}", xy=(x, y), fontsize=8, ha="right")
+    ax.plot(*lane.control_points.T, "ro", label="Control Points")
+    for i, p in enumerate(lane.control_points):
+        ax.annotate(text=f"{i}", xy=p, fontsize=8, ha="right")
 
     # Plot left edge
-    left_x, left_y = list_points_as_values(lane.left_edge)
-    ax.plot(left_x, left_y, "b-", label="Left Edge")
+    ax.plot(*lane.left_edge.T, "b-", label="Left Edge")
 
     # Plot right edge
-    right_x, right_y = list_points_as_values(lane.right_edge)
-    ax.plot(right_x, right_y, "m-", label="Right Edge")
+    ax.plot(*lane.right_edge.T, "m-", label="Right Edge")
 
     ax.fill(
-        np.concatenate((left_x, right_x[::-1])),
-        np.concatenate((left_y, right_y[::-1])),
+        *np.concatenate((lane.left_edge, lane.right_edge[::-1])).T,
         color="gray",
         alpha=0.5,
         label="Lane Area",
@@ -66,6 +58,7 @@ def plot_vehicle(vehicle: Vehicle):  # Tested as of 3/29/2025
     """Plots the vehicle with its body, center point and heading."""
     ax = plt.gca()
     # Plot vehicle body
+    vehicle.update_body()
     body_x, body_y = list_points_as_values(vehicle.body.corners)
     ax.fill(body_x, body_y, "b", label="Vehicle Body")
 
@@ -76,22 +69,11 @@ def plot_vehicle(vehicle: Vehicle):  # Tested as of 3/29/2025
 
     # Plot vehicle heading with arrow
     # Getting heading point and scalling by 10.0 so that it is visible.
-    d = np.array(vehicle.get_direction_vector()) * 10.0
-    heading_point = vehicle.center_point + Point(d[0], d[1])
-    x = [vehicle.center_point.x, (heading_point.x)]
-    y = [vehicle.center_point.y, (heading_point.y)]
+    d = vehicle.get_direction_vector() * 10.0
+    heading_point = vehicle.center_point + d
+    x = [vehicle.center_point[0], (heading_point[0])]
+    y = [vehicle.center_point[1], (heading_point[1])]
     ax.plot(x, y, "g->", label="Vehicle Heading")
-    # ax.annotate(
-    #     "",
-    #     xy=(x[1], y[1]),
-    #     xytext=(x[0], y[0]),
-    #     arrowprops=dict(
-    #         facecolor="green",
-    #         edgecolor="green",
-    #         arrowstyle="->",
-    #         lw=2,
-    #     ),
-    # )
 
 
 def plot_sensors(sensor_array: SensorArray):  # Tested as of 3/29/2025
@@ -100,8 +82,8 @@ def plot_sensors(sensor_array: SensorArray):  # Tested as of 3/29/2025
     label = "Sensor"
     for i, sensor in enumerate(sensor_array.sensors):
         ax.plot(
-            [sensor.origin_point.x, sensor.end_point.x],
-            [sensor.origin_point.y, sensor.end_point.y],
+            [sensor.origin_point[0], sensor.end_point[0]],
+            [sensor.origin_point[1], sensor.end_point[1]],
             "r--",
             label=label,
         )

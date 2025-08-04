@@ -1,5 +1,4 @@
 from lane import Lane
-from point import Point
 from environment import Environment
 from vehicle import Vehicle
 from sensor_array import SensorArray
@@ -55,7 +54,7 @@ def test_init_environment():
 
 
 def test_init_vehicle():
-    center_point = Point(10, 10)
+    center_point = np.ndarray(10, 10)
     heading = math.pi / 2
     speed = 10.0
     vehicle = Vehicle()
@@ -115,8 +114,8 @@ def test_init_sensor_array():
 
 def test_sensor():
     s = Sensor(sensor_length=50, angle_offset=-math.pi / 2)
-    origin = Point(0, 0)
-    direction = Point(0, 1)
+    origin = np.ndarray(0, 0)
+    direction = np.ndarray(0, 1)
     s.update_sensor(origin, direction)
     assert (
         s.origin_point == origin
@@ -136,9 +135,9 @@ def test_sensor():
 def sensor_tests():
     sensor_array = test_init_sensor_array()
     test_sensor()
-    center_point = Point(0, 0)
+    center_point = np.ndarray(0, 0)
     sensor_array.update_sensors(
-        center_point, Point(0, 1)
+        center_point, np.ndarray(0, 1)
     )  # Update sensor positions based on vehicle
     assert (
         sensor_array.sensors[0].origin_point == center_point

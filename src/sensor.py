@@ -1,5 +1,4 @@
-from point import Point
-import math
+import numpy as np
 
 
 class Sensor:
@@ -16,7 +15,7 @@ class Sensor:
         self.angle_offset = angle_offset
 
     def update_sensor(
-        self, origin_point: Point, direction_angle: float
+        self, origin_point: np.ndarray, direction_angle: float
     ):  # Tested as of 3/29/2025
         """Updates the sensor based on the given origin point and direction vector.
 
@@ -29,7 +28,7 @@ class Sensor:
 
     def calculate_end_point(
         self, direction_angle: float
-    ) -> Point:  # Tested as of 3/29/2025
+    ) -> np.ndarray:  # Tested as of 3/29/2025
         """Calculates the end point of the sensor based on the origin point. Direction vector is the direction of the center of the sensor group.
         The sensors actual direction is calculated by adding the angle offset to the direction vector.
         The end point is calculated by adding the new direction vector to the origin point, scaled by the sensor length.
@@ -44,7 +43,7 @@ class Sensor:
         new_angle = direction_angle + self.angle_offset
 
         # Compute new heading point using the fixed sensor length
-        new_x = self.origin_point.x + self.sensor_length * math.cos(new_angle)
-        new_y = self.origin_point.y + self.sensor_length * math.sin(new_angle)
-
-        return Point(new_x, new_y)
+        return (
+            self.origin_point
+            + np.array([np.cos(new_angle), np.sin(new_angle)]) * self.sensor_length
+        )
