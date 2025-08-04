@@ -119,7 +119,7 @@ def rotate_point_around_pivot(
     rot_matrix = get_2d_rotation_matrix(angle)
 
     # Apply rotation matrix
-    new_s = rot_matrix * s
+    new_s = rot_matrix @ s.flatten()
 
     # Create the offset point
     return pivot + new_s
