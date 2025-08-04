@@ -261,6 +261,50 @@ def warmup(
 
     return num_passes() >= window_size // 2
 
+
+def rerun_and_train(
+    sim: Simulation,
+    requests: list[np.ndarray],
+    cur_step: int = None,
+    target_steps: int = None,
+    step_limit: int = None,
+):
+    """
+    Arguments:
+    - sim (Simulation): The simulation to run.
+    - requests (list[ndarray]): The requests to re-run and train over.
+    - cur_step (int): How many steps of training have occurred up until this point. If None, assumed to be 0.
+    - target_steps (int): How many steps of training until complete. If None, assumed to be step_limit. If
+        step_limit is None, will estimate based on the number of requests (50 steps per req).
+        Used for determining how to scale exploration noise over the course of training.
+    - step_limit (int): The maximum training steps before ending. If None, will run through all requests to
+        completion.
+    """
+
+    ep_log = []
+    total_steps = 0
+
+    target_steps = target_steps or step_limit or len(requests) * 50
+
+    sim.agent.training = True
+
+    for i, x in enumerate(requests):
+        if total_steps >= step_limit:
+            break
+        sim.agent.update_expl_noise(cur_step + i, target_steps)
+
+        sim.sim_reset(*x)
+        sim.update_sim_status()
+        is_valid = sim.get_sim_status()[1]
+        if not is_valid:
+            continue
+
+        ep = run_episode(x, sim, step_limit=step_limit - total_steps)
+        ep_log.append(ep)
+
+    return ep_log
+
+
 # sim = setup_sim()
 # ep_log = train_standard(sim, 100)
 # print([ep.num_steps for ep in ep_log[-10:]])
