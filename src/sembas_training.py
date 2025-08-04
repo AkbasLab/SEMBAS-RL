@@ -225,6 +225,42 @@ def train_standard(
     return episode_log
 
 
+def warmup(
+    sim: Simulation,
+    target_step_count: int,
+    step_limit=None,
+    window_size=10,
+):
+    sim.agent = agent_factory()
+    i = 0
+    num_steps = 0
+
+    step_history = []
+
+    rng = lambda: map_norm((SIM_LOW, SIM_HIGH), torch.rand(len(SIM_LOW)))
+
+    num_passes = lambda: (
+        np.array(step_history[-window_size:]) >= target_step_count
+    ).sum()
+
+    while num_passes() < window_size // 2 and (
+        num_steps is None or num_steps < step_limit
+    ):
+        sim.agent.update_expl_noise(i, step_limit or 1000)
+
+        has_valid = False
+        while not has_valid:
+            x = rng()
+            sim.sim_reset(*x)
+            sim.update_sim_status()
+            has_valid = sim.get_sim_status()[1]
+
+        ep_log = run_episode(x, sim, step_limit=step_limit - num_steps)
+        num_steps += len(ep_log)
+        step_history.append(len(ep_log))
+
+    return num_passes() >= window_size // 2
+
 # sim = setup_sim()
 # ep_log = train_standard(sim, 100)
 # print([ep.num_steps for ep in ep_log[-10:]])
