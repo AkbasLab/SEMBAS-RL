@@ -155,31 +155,46 @@ def determine_distance(
     return distance
 
 
-def closest_points(point: np.ndarray, curve_pts: list[np.ndarray]):
-    """Calculates the distance between the given point and the given list of points.
+# def closest_points(point: np.ndarray, curve_pts: list[np.ndarray]):
+#     """Calculates the distance between the given point and the given list of points.
 
-    Args:
-        point (Point): Point to measure distance to
-        curve_pts (list[Point]): List of points to determine closest to the given point.
+#     Args:
+#         point (Point): Point to measure distance to
+#         curve_pts (list[Point]): List of points to determine closest to the given point.
 
-    Returns:
-        distance (float): The distance the point is from the closest point in the given list of points.
-        nearest_points (list[Point]): List of the two closest points to the given point.
-    """
-    curve_pts = np.vstack(curve_pts)  # (pt, x|y)
+#     Returns:
+#         distance (float): The distance the point is from the closest point in the given list of points.
+#         nearest_points (list[Point]): List of the two closest points to the given point.
+#     """
+#     curve_pts = np.vstack(curve_pts)  # (pt, x|y)
 
-    # Calcualates all distances
-    distances = np.linalg.norm(curve_pts - point, axis=1)
-    # The index of the nearest point
-    nearest_idx = np.argmin(distances)
-    # Getting next closest distance
-    distances[nearest_idx] = np.inf
-    sectond_neared_idx = np.argmin(distances)
-    # Getting the two closest points
-    pt1 = curve_pts[nearest_idx]
-    pt2 = curve_pts[sectond_neared_idx]
+#     # Calcualates all distances
+#     distances = np.linalg.norm(curve_pts - point, axis=1)
+#     # The index of the nearest point
+#     nearest_idx = np.argmin(distances)
+#     # Getting next closest distance
+#     distances[nearest_idx] = np.inf
+#     sectond_neared_idx = np.argmin(distances)
+#     # Getting the two closest points
+#     pt1 = curve_pts[nearest_idx]
+#     pt2 = curve_pts[sectond_neared_idx]
 
-    return [pt1, pt2], nearest_idx
+#     return [pt1, pt2], nearest_idx
+
+
+def closest_points(point: np.ndarray, curve_pts: np.ndarray):
+    curve_pts = np.asarray(curve_pts)  # ensures array, avoids copy if already array
+
+    dists = np.sum((curve_pts - point) ** 2, axis=1)  # avoids sqrt for speed
+    idx = np.argpartition(dists, 2)[:2]  # gets two smallest efficiently (unordered)
+
+    # Order the two points by distance
+    if dists[idx[0]] <= dists[idx[1]]:
+        nearest_idx, second_idx = idx[0], idx[1]
+    else:
+        nearest_idx, second_idx = idx[1], idx[0]
+
+    return [curve_pts[nearest_idx], curve_pts[second_idx]], nearest_idx
 
 
 def calc_distance(point: np.ndarray, curve_pts: list[np.ndarray]):
