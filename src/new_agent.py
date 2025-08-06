@@ -177,6 +177,12 @@ class NewAgent(Agent):
         else:
             self.exploration_noise = 0
 
+    def set_lr(self, critic_lr: float = None, actor_lr: float = None):
+        if critic_lr:
+            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
+        if actor_lr:
+            self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
+
     def update_lr(self, episode: int, max_episodes: int):
         if (
             self.lr_schedule
