@@ -1,166 +1,263 @@
-import sembas_training_old as st
+import sembas_training as st
 import sembas_api as api
 import json
 import numpy as np
 import logging
+from pathlib import Path
+
+logger = logging.getLogger("trainer")
+
+WARMUP_STEP_TARGET = 75
+STEP_CRITERIA = 20
 
 
-def create_wup_list(title: str, num_runs: int):
-    return [f".models/warmup/{title}/agent_warmup-{i}.pt" for i in range(num_runs)]
+def create_wup_list(num_runs: int):
+    return [f".models/warmup/test/agent_warmup-{i}.pt" for i in range(num_runs)]
 
 
-def create_result_dict(train_slog, train_rlog, rlog, slog):
-    data = np.array(slog)
+def create_result_dict(
+    test_ep_log: list[st.EpisodeData], train_ep_log: list[st.EpisodeData]
+):
+    test_step_counts = st.EpisodeData.get_step_history(test_ep_log)
+    test_rewards = st.EpisodeData.get_reward_history(test_ep_log)
+    train_step_counts = st.EpisodeData.get_step_history(train_ep_log)
+    train_rewards = st.EpisodeData.get_reward_history(train_ep_log)
 
-    train_slog = [int(x) for x in train_slog]
-    train_rlog = [float(x) for x in train_rlog]
-    slog = [int(x) for x in slog]
-    rlog = [float(x) for x in rlog]
+    train_slog = [int(x) for x in train_step_counts]
+    train_rlog = [float(x) for x in train_rewards]
+    test_slog = [int(x) for x in test_step_counts]
+    test_rlog = [float(x) for x in test_rewards]
 
     return {
-        "test-mean": float(data.mean()),
-        "test-min": float(data.min()),
-        "test-max": float(data.max()),
+        "test-mean": float(test_step_counts.mean()),
+        "test-min": float(test_step_counts.min()),
+        "test-max": float(test_step_counts.max()),
         "train-rewards": train_rlog,
         "train-steps": train_slog,
-        "test-rewards": rlog,
-        "test-steps": slog,
+        "test-rewards": test_rlog,
+        "test-steps": test_slog,
     }
 
 
 def save_run(rdict: dict, title, i=None):
     suffix = f"-{i}" if i is not None else ""
-    with open(f".results/{title}/run{suffix}.json", "w") as f:
+    filepath = Path(f".results/{title}/run{suffix}.json")
+
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    with open(filepath, "w") as f:
         json.dump(rdict, f)
 
 
-def sembas(
-    title: str,
-    index: int,
-    session,
-    init_crit_step_c=75,
-    crit_step_c=50,
-    s_batch_size=15,
-    # s_num_batches=10,
-    s_num_batches=None,
-    num_rand_tests=10,
-    num_steps=1500,
-    random_size=150,
-    random_spacing=150,
+def sembas_training(
+    session: api.SembasSession,
+    sim: st.Simulation,
+    step_criteria: int,
+    num_training_samples: int,
+    batch_step_size: int,
+    random_size: int = None,
+    save_path=None,
 ):
-    # hacking a bypass of warmup to re-use old models
-    wup_path = create_wup_list(title, 20)[index]
-    rewards, steps = st.sembas_training(
-        s_batch_size,
-        crit_step_c,
-        s_num_batches,
-        plot_samples=False,
-        init_crit_step_c=init_crit_step_c,
-        wup_suffix=index,
-        save_warmup=False,
-        wup_subdir=title,
-        session=session,
-        wup_override=wup_path,
-        target_training_steps=num_steps,
-        random_size=random_size,
-        random_spacing=random_spacing,
-    )
-    # rewards, steps = st.sembas_training(s_batch_size, crit_step_c, s_num_batches, plot_samples=False, init_crit_step_c=init_crit_step_c, wup_suffix=index, save_warmup=save_warmup, wup_subdir=title, session=session)
-
-    rlog, slog = st.perf_test(st.sim, num_rand_tests)
-    st.sim.agent.save(".models/sembas", f"{index}")
-
-    return create_result_dict(steps, rewards, rlog, slog)
+    try:
+        return st.train_sembas(
+            session,
+            sim,
+            step_criteria,
+            num_training_samples,
+            batch_step_size,
+            random_size,
+        )
+    except KeyboardInterrupt:
+        print("Ending early")
+    finally:
+        if save_path:
+            sim.agent.save(save_path)
 
 
-def random(wup_path, index: int, s_batch_size=15, s_num_batches=10, num_rand_tests=10):
-    rewards, steps = st.traditional_training(
-        wup_path,
-        s_batch_size,
-        s_num_batches,
-    )
+def random_training(
+    sim: st.Simulation,
+    num_training_samples: int,
+    s_random_size: int = None,
+    s_batch_size: int = None,
+):
+    """
+    Arguments:
+    sim (Simulation): The simulation to run.
+    num_training_samples (int): The number of SEMBAS-equivalent steps to run.
+    s_random_size (int): SEMBAS' equivalent number of random samples to run.
+        This allows for an accurate number of training steps to occur in
+        order to compare SEMBAS with random training. Requires batch size!
+    s_batch_size (int): The batch size used by SEMBAS. Used in conjunction
+        with @s_random_size to calculate the total samples executed by
+        SEMBAS.
+    """
+    assert s_random_size is None or s_random_size and s_batch_size
 
-    rlog, slog = st.perf_test(st.sim, num_rand_tests)
-    st.sim.agent.save(".models/random", f"{index}")
+    if s_random_size:
+        # Between each batch, a fixed length random training occurs
+        # This means, even if num isn't evenly divisible by batch size,
+        # another batch of random training occurs. This is why we take
+        # the ceiling of the num/batch.
+        num_batches = np.ceil(num_training_samples / s_batch_size)
+        random_samples = num_batches * s_random_size
+        num_training_samples += random_samples
 
-    return create_result_dict(steps, rewards, rlog, slog)
+    try:
+        return st.train_standard(
+            sim,
+            num_training_samples,
+        )
+    except KeyboardInterrupt:
+        print("Ending eearly")
+    finally:
+        sim.agent.save(".checkpoints/latest_agent-random.pt")
 
 
-def random_by_steps(wup_path, index: int, num_steps: int = 1500, num_rand_tests=10):
-    rewards, steps = st.traditional_training_by_steps(wup_path, num_steps=num_steps)
+def perf_test(sim: st.Simulation, num_episodes: int, max_steps=1000):
+    ep_log = []
+    for i in range(num_episodes):
+        logger.info(f"Episode {i}")
+        logger.info(f"Finding valid start...")
+        has_valid = False
+        while not has_valid:
+            x = st.map_norm(
+                (st.SIM_LOW, st.SIM_HIGH), np.random.random(len(st.SIM_LOW))
+            )
+            # sim.sim_reset(*x)
+            st.reset(sim, x)
+            sim.update_sim_status()
+            has_valid = sim.get_sim_status()[1]
 
-    rlog, slog = st.perf_test(st.sim, num_rand_tests)
-    st.sim.agent.save(".models/random", f"{index}")
+        logger.info("Starting episode")
+        ep_log.append(st.run_episode(x, sim, train=False, step_limit=max_steps))
 
-    return create_result_dict(steps, rewards, rlog, slog)
+    return ep_log
 
 
-def runner(foo, title: str, target_agg_key: str, num_runs=20, **kwargs):
-    results = []
+def sembas_warmup(
+    sim: st.Simulation,
+    index: int,
+    target_distance=None,
+    target_steps=WARMUP_STEP_TARGET,
+    max_steps=2500,
+):
+    print("Warmup")
+    has_valid = False
+    while not has_valid:
+        has_valid = st.warmup(
+            sim, target_distance=target_distance, step_limit=max_steps
+        )
+    sim.agent.save(f".models/warmup/test/agent_warmup-{index}.pt")
+
+
+def create_warmups(num_models: int, target_distance=120, max_steps=5000):
+    sim = st.setup_sim()
+    for i in range(num_models):
+        sembas_warmup(sim, i, target_distance=target_distance, max_steps=max_steps)
+
+
+def test_sembas(num_runs=20, train_size: int = 5000, wup_paths: list[str] = None):
+    session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
+    sim = st.setup_sim()
+
     for i in range(num_runs):
-        rdict = foo(i, **kwargs)
-        save_run(rdict, title, i)
+        if wup_paths is not None:
+            sim.agent.load(wup_paths[i])
+        else:
+            sembas_warmup(sim, i)
 
-        results.append(rdict[target_agg_key])
-
-    return np.array(results)
-
-
-def create_sembas_exp(title: str, session, **default_kwargs):
-    def exp(i, **kwargs):
-        return sembas(title, i, session, **default_kwargs, **kwargs)
-
-    return exp
-
-
-def create_trad_exp(wup_schedule: list[str], **default_kwargs):
-    def exp(i, **kwargs):
-        return random_by_steps(wup_schedule[i], i, **default_kwargs, **kwargs)
-
-    return exp
-
-
-def main_run_both(num_runs=20, batch_size=15, num_batches=10):
-    try:
-        session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
-        exp = create_sembas_exp(
-            "test", session, s_batch_size=batch_size, s_num_batches=num_batches
+        # sim.agent.set_lr(critic_lr=1e-3, actor_lr=1e-4)
+        train_eps = sembas_training(
+            session,
+            sim,
+            STEP_CRITERIA,
+            train_size,
+            500,  # random_size=150
         )
+        # input("press enter")
+        test_eps = perf_test(sim, num_episodes=50)
 
-        sembas_result = runner(exp, "sembas-test", "test-mean", num_runs=num_runs)
-        wup_schedule = create_wup_list("test", num_runs)
-        exp = create_trad_exp(
-            wup_schedule, s_batch_size=batch_size, s_num_batches=num_batches
+        result = create_result_dict(test_eps, train_eps)
+        save_run(result, f"sembas-2", i)
+
+
+def test_random(num_runs=20, train_size: int = 5000, wup_paths: list[str] = None):
+    sim = st.setup_sim()
+
+    for i in range(num_runs):
+        if wup_paths is not None:
+            sim.agent.load(wup_paths[i])
+        else:
+            sembas_warmup(sim, i)
+
+        sim.agent.set_lr(critic_lr=1e-3, actor_lr=1e-4)
+        train_eps = random_training(
+            sim,
+            train_size,
         )
-        result = runner(exp, "trdtest", "test-mean", num_runs=num_runs)
+        # input("Press enter")
+        # test_eps = perf_test(sim, num_episodes=20)
 
-        print("Sembas:", sembas_result.mean(), sembas_result.min(), sembas_result.max())
-        print("Traditional:", result.mean(), result.min(), result.max())
-    except KeyboardInterrupt:
-        print("ending early")
-        st.sim.agent.save(".test", "broken")
+        # result = create_result_dict(test_eps, train_eps)
+        # save_run(result, f"random-test", i)
 
 
-def main_by_steps(num_runs=20, num_steps=1500, batch_size=50):
-    try:
-        session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
-        exp = create_sembas_exp("test", session, num_steps=num_steps)
-        sembas_result = runner(
-            exp, "sembas-test", "test-mean", num_runs=num_runs, s_batch_size=batch_size
-        )
+def review_last(title: str, num_runs: int):
+    sr = 0
+    for i in range(num_runs):
+        fn = f"run-{i}.json"
+        with open(f".results/{title}/{fn}") as f:
+            sr += json.load(f)["test-mean"]
 
-        wup_schedule = create_wup_list("test", num_runs)
-        exp = create_trad_exp(wup_schedule, num_steps=num_steps * 2)
-        result = runner(exp, "trdtest", "test-mean", num_runs=num_runs)
-
-        print("Sembas:", sembas_result.mean(), sembas_result.min(), sembas_result.max())
-        print("Traditional:", result.mean(), result.min(), result.max())
-    except KeyboardInterrupt:
-        print("ending early")
-        st.sim.agent.save(".test", "broken")
-
-    st.watch(st.sim)
+    print(f"{title}: {sr / num_runs}")
 
 
-if __name__ == "__main__":
-    main_by_steps(20, 800, 10)
+# def show_results(title: str, index: int):
+#     fig, ax = plt
+
+# sim = st.setup_sim()
+# for i in range(20):
+#     sim.agent.load(f".models/warmup/test/agent_warmup-{i}.pt")
+#     eps = perf_test(sim, 20)
+
+#     distances = np.array([ep.distance_traveled for ep in eps])
+
+#     print("total distance:", sum(distances))
+#     print("median distance:", np.median(distances))
+#     print("stats distance:", distances.min(), distances.max(), distances.mean())
+
+# create_warmups(20)
+# review_last("sembas-test", 20)
+# review_last("random-test", 20)
+
+
+# from timeit import default_timer as timer
+
+# t0 = timer()
+
+# test_sembas(num_runs=10, wup_paths=create_wup_list(20))
+review_last("sembas-2", 10)
+review_last("random-test", 10)
+
+# dists = []
+# steps = []
+# sim = st.setup_sim()
+# for wup_path in create_wup_list(20):
+#     sim.agent.load(wup_path)
+
+#     eps = st.perf_test(sim, 50)
+#     dists.append(st.EpisodeData.get_distance_history(eps).mean())
+#     steps.append(st.EpisodeData.get_step_history(eps).mean())
+
+# dists = np.array(dists)
+# steps = np.array(steps)
+# print("Distances")
+# print(dists)
+# print("Steps")
+# print(steps)
+# print(dists.mean())
+# print(steps.mean())
+
+# test_random(wup_paths=create_wup_list(20))
+# print(f"Took {timer() - t0}s")
+
+# the score to beat: 230
