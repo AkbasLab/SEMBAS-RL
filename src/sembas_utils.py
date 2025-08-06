@@ -5,6 +5,25 @@ from simulation import Simulation
 import logging
 import torch
 
+if __name__ != "__main__":
+    logger = logging.getLogger("trainer")
+else:
+    raise RuntimeError("Sembas Utils isn't setup for running as main")
+
+
+def reset(sim: Simulation, x: np.ndarray):
+    match x.shape[0]:
+        case 2:
+            sim.sim_reset(x[0], 0.5, x[1], 75)
+        case 3:
+            sim.sim_reset(x[0], 0.5, x[1], x[2])
+        case 4:
+            sim.sim_reset(*x)
+        case _:
+            raise ValueError(
+                f"Sim reset not defined for {x.shape[0]} number of dimensions"
+            )
+
 
 def map_norm(bounds, x) -> ndarray:
     x = np.array(x)
@@ -16,7 +35,6 @@ def run_until_phase(
     sim: Simulation,
     crit_step_c: int,
     target_phase: str,
-    logger: logging.Logger,
     max_steps=1000,
 ) -> dict[str, list[tuple[tuple, bool]]]:
     """
@@ -33,11 +51,10 @@ def run_until_phase(
             new_train_data[session.prev_known_phase] = []
 
         # longitude: float, latitude: float, dir_angle_offset: float, speed: float
-        # x = receive_request(client)
         x = session.receive_request()
-        x = torch.tensor(x)
         # sim.sim_reset(x[0], 0.5, x[1], 45)
-        sim.sim_reset(*x)
+        # sim.sim_reset(*x)
+        reset(sim, x)
         # scale
         sim.update_sim_status()
         is_valid = sim.get_sim_status()[1]

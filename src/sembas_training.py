@@ -1,6 +1,25 @@
+import logging
+
+logging.basicConfig(
+    level=logging.WARNING, format="%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s"
+)
+
+logger = logging.getLogger("trainer")
+logger.setLevel(logging.DEBUG)
+
+file_handler = logging.FileHandler("st.log")
+
+file_handler.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter("%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s")
+file_handler.setFormatter(formatter)
+
+# Add handlers to the logger
+logger.addHandler(file_handler)
+
 from typing import Literal
 from new_agent import NewAgent
-from sembas_utils import map_norm, run_until_phase
+from sembas_utils import map_norm, run_until_phase, reset
 from vehicle import Vehicle
 from lane import Lane
 from environment import Environment
@@ -16,7 +35,6 @@ import graphics
 import numpy as np
 import sembas_api as api
 import torch
-import logging
 
 from numpy import ndarray
 
@@ -43,32 +61,61 @@ LR_CRITIC = 1e-2
 # LR_CRITIC = 1e-3
 GAMMA = 0.99
 NUM_DIM = 4
-SIM_LOW = np.array([0, 0.25, -np.pi / 5, 20.0])
-SIM_HIGH = np.array([1, 0.75, np.pi / 5, 75.0])
-# SIM_LOW = np.array([0, -np.pi / 5])
-# SIM_HIGH = np.array([1, np.pi / 5])
+# SIM_LOW = np.array([0, 0.25, -np.pi / 5, 20.0])
+# SIM_HIGH = np.array([1, 0.75, np.pi / 5, 75.0])
+SIM_LOW = np.array([0, -np.pi / 5])
+SIM_HIGH = np.array([1, np.pi / 5])
 
 EST_STEPS_PER_EP = 15  # early episodes are short
 
 MSG_REACQ = "REACQ"
 ##########################################
 
-logging.basicConfig(
-    level=logging.WARNING, format="%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s"
-)
 
-logger = logging.getLogger("trainer")
-logger.setLevel(logging.DEBUG)
+class EpisodeData:
+    def __init__(
+        self,
+        parameters: ndarray,
+        steps: list,
+        distance_traveled: float,
+        cls: bool,
+    ):
+        self.parameters = parameters
+        self.steps = steps
+        self.cls = cls
+        self.distance_traveled = distance_traveled
 
-file_handler = logging.FileHandler("st.log")
+    @staticmethod
+    def failed(parameters: ndarray) -> "EpisodeData":
+        return EpisodeData(parameters, [], 0.0, False)
 
-file_handler.setLevel(logging.DEBUG)
+    @property
+    def is_failure(self):
+        return len(self.steps) == 0
 
-formatter = logging.Formatter("%(asctime)s:%(levelname)-8s:%(name)-15s: %(message)s")
-file_handler.setFormatter(formatter)
+    @property
+    def num_steps(self):
+        return len(self.steps)
 
-# Add handlers to the logger
-logger.addHandler(file_handler)
+    @property
+    def total_reward(self):
+        return sum(map(lambda s: s[2].item(), self.steps))
+
+    @staticmethod
+    def get_step_history(ep_log: list["EpisodeData"]):
+        return np.array([ep.num_steps for ep in ep_log])
+
+    @staticmethod
+    def get_reward_history(ep_log: list["EpisodeData"]):
+        return np.array([ep.total_reward for ep in ep_log])
+
+    @staticmethod
+    def get_request_history(ep_log: list["EpisodeData"]):
+        return np.array([ep.parameters for ep in ep_log])
+
+    @staticmethod
+    def get_distance_history(ep_log: list["EpisodeData"]):
+        return np.array([ep.distance_traveled for ep in ep_log])
 
 
 # Creating Log
@@ -133,51 +180,41 @@ def setup_sim():
     return sim
 
 
-class EpisodeData:
-    def __init__(
-        self,
-        parameters: ndarray,
-        steps: list,
-    ):
-        self.parameters = parameters
-        self.steps = steps
-
-    @staticmethod
-    def failed(parameters: ndarray) -> "EpisodeData":
-        return EpisodeData(parameters, [])
-
-    @property
-    def num_steps(self):
-        return len(self.steps)
-
-    @property
-    def total_reward(self):
-        return sum(map(lambda s: s[2].item(), self.steps))
-
-
 def run_episode(
     x: ndarray,
     sim: Simulation,
+    step_criteria: int = None,
     train=True,
     step_limit=MAX_STEPS,
     display_mode: Literal["off", "play", "step"] = "off",
+    skip_failures=True,
+    show_reward=False,
+    fixed_noise=None,
 ):
     "Runs the episode (if valid) and returns step history and class."
-    sim.sim_reset(*x)
+    # sim.sim_reset(*x)
+    reset(sim, x)
     sim.update_sim_status()
     is_valid = sim.get_sim_status()[1]
 
-    sim.agent.training = True
-
-    if not is_valid:
+    if skip_failures and not is_valid:
         return EpisodeData.failed(x)
 
+    sim.agent.training = True
     steps = []
     done = False
 
     if display_mode != "off":
         graphics.render_simulation(sim)
         graphics.show()
+    if show_reward:
+        rewards = []
+        fig, ax = plt.subplots()
+        ax.set_title("reward")
+
+    if fixed_noise:
+        sim.agent.use_noise = True
+        sim.agent.exploration_noise = fixed_noise
 
     # run episode
     while not done and len(steps) < step_limit:
@@ -188,6 +225,11 @@ def run_episode(
         done = not in_lane or not in_motion
 
         steps.append((state, action, reward, next_state))
+        if show_reward:
+            ax.clear()
+            rewards.append(reward.item())
+            ax.plot(np.arange(len(rewards)), rewards, color="green")
+            plt.pause(0.1)
 
         if train:
             sim.agent.train_step(state, action, reward, next_state, done)
@@ -199,65 +241,227 @@ def run_episode(
             if display_mode == "step":
                 input("Press enter to continue")
 
-    return EpisodeData(x, steps)
+    return EpisodeData(
+        x,
+        steps,
+        sim.vehicle.distance_travelled_ft,
+        (len(steps) >= step_criteria) if step_criteria else None,
+    )
 
 
 def train_standard(
-    sim: Simulation, num_steps: int, use_noise=True
+    sim: Simulation,
+    num_steps: int,
+    noise_step_start: int = None,
+    noise_step_target: int = None,
 ) -> list[EpisodeData]:
+    fig, axl = plt.subplots()
+    _i = 0
+    dists = []
     episode_log = []
 
     total_steps = 0
+    use_noise = noise_step_start is not None
+    noise_step_target = noise_step_target or num_steps
     sim.agent.use_noise = use_noise
 
     while total_steps < num_steps:
+        print(total_steps)
         if use_noise:
-            sim.agent.update_expl_noise(total_steps, num_steps)
+            sim.agent.update_expl_noise(
+                noise_step_start + total_steps, noise_step_target
+            )
 
         step_limit = num_steps - total_steps
 
         x = map_norm((SIM_LOW, SIM_HIGH), np.random.random(len(SIM_LOW)))
         ep = run_episode(x, sim, step_limit=step_limit)
+        if ep.is_failure:
+            continue
 
         total_steps += ep.num_steps
         episode_log.append(ep)
 
+        if total_steps >= _i * 500:
+            test_eps = perf_test(sim, 50)
+            dists.append(np.array([ep.distance_traveled for ep in test_eps]).mean())
+            axl.clear()
+            axl.plot(np.arange(len(dists)), dists, color="blue")
+            plt.pause(0.5)
+            _i += 1
+
     return episode_log
+
+
+def perf_test(sim: Simulation, num_episodes: int, max_steps=1000):
+    ep_log = []
+    for i in range(num_episodes):
+        logger.info(f"Episode {i}")
+        logger.info(f"Finding valid start...")
+        has_valid = False
+        while not has_valid:
+            x = map_norm((SIM_LOW, SIM_HIGH), np.random.random(len(SIM_LOW)))
+            # sim.sim_reset(*x)
+            reset(sim, x)
+            sim.update_sim_status()
+            has_valid = sim.get_sim_status()[1]
+
+        logger.info("Starting episode")
+        ep_log.append(run_episode(x, sim, train=False, step_limit=max_steps))
+
+    return ep_log
+
+
+def train_sembas(
+    session: api.SembasSession,
+    sim: Simulation,
+    step_criteria: int,
+    step_count_target: int,
+    batch_step_size: int,
+    random_size: int = None,
+    expl_batch_size_factor=1.5,
+    max_global_search=1000,
+):
+    """
+    Arguments:
+    - session (SembasSession): The session with SEMBAS to handle parameter selection.
+    - sim (Simulation): The simulation to run.
+    - step_criteria (int): The number of steps defining a "success".
+    - step_count_target (int): The number of training steps before termination.
+    - batch_step_size (int): The number of SEMBAS boundary training steps for each batch of training.
+        Keep this as some factor of @step_count_target.
+    - random_size (int, optional): The number of random training steps between sembas training.
+    - expl_batch_size_factor (float): If random_size is specified, this determines how many exploration
+        steps to take (random_size * expl_batch_size_factor).
+        This is needed due to train steps != exploration steps due to RNG. This provides a margin of
+        additional training data to prevent not hitting the training target. If this is too small, it
+        is possible/likely the total number of training steps will not equal @step_count_target.
+    - max_global_search (int): The limit to the number of GS episodes taken before failing out.
+    """
+    # fig, (axl, axr) = plt.subplots(1, 2)
+    # fig, axl = plt.subplots()
+    # dists = []
+
+    batch_upper_bound = int(batch_step_size * expl_batch_size_factor)
+    training_data = []
+    batch_episodes = []
+    process = "NewSearch"
+    total_train_steps = 0
+    batch_steps = 0
+    while total_train_steps < step_count_target or process == "Training":
+        match process:
+            case "NewSearch":
+                logger.info("Starting new search")
+                run_until_phase(
+                    session,
+                    sim,
+                    step_criteria,
+                    "BE",
+                    max_steps=max_global_search,
+                )
+                if session.prev_known_phase == "BE":
+                    process = "BE"
+                else:
+                    raise RuntimeError("Failed to find boundary during GS!")
+            case "BE":
+                if session.expect_phase() != api.SembasSession.PHASE_BOUNDARY_EXPL:
+                    logger.info(
+                        f"Phase change to {session.prev_known_phase}, assuming boundary complete. Starting new search."
+                    )
+                    process = "NewSearch"
+                    continue
+                elif batch_steps >= batch_upper_bound:
+                    process = "Training"
+                    continue
+
+                x = session.receive_request()
+                ep = run_episode(
+                    x,
+                    sim,
+                    step_criteria,
+                    train=False,
+                    step_limit=batch_upper_bound - batch_steps,
+                    # display_mode="play",
+                    # show_reward=True,
+                )
+                batch_steps += ep.num_steps
+                session.send_response(ep.cls)
+
+                if not ep.is_failure:
+                    batch_episodes.append(ep)
+
+            case "Training":
+                logger.info("Training")
+                step_limit = min(batch_step_size, step_count_target - total_train_steps)
+
+                if random_size:
+                    logger.info("[Training] Random training")
+                    train_standard(
+                        sim, random_size, total_train_steps, step_count_target
+                    )
+
+                logger.info("[Training] Sembas training")
+                ep_log = rerun_and_train(
+                    sim,
+                    EpisodeData.get_request_history(batch_episodes),
+                    step_criteria,
+                    # cur_step=total_train_steps,
+                    step_limit=step_limit,
+                    target_steps=step_count_target,
+                )
+
+                # test_eps = perf_test(sim, 50)
+                # dists.append(np.array([ep.distance_traveled for ep in test_eps]).mean())
+                # axl.clear()
+                # axl.plot(np.arange(len(dists)), dists, color="blue")
+                # plt.pause(0.5)
+
+                total_train_steps += sum(EpisodeData.get_step_history(ep_log))
+                training_data.extend(ep_log)
+
+                process = "NewSearch"
+                session.send_message(MSG_REACQ)
+                batch_episodes = []
+                batch_steps = 0
+
+    return training_data
 
 
 def warmup(
     sim: Simulation,
-    target_step_count: int,
+    target_step_count: int = None,
+    target_distance: float = None,
     step_limit=None,
     window_size=10,
 ):
+    assert target_step_count or target_distance
     sim.agent = agent_factory()
     i = 0
     num_steps = 0
 
-    step_history = []
+    history = []
+    target = target_step_count or target_distance
 
     rng = lambda: map_norm((SIM_LOW, SIM_HIGH), torch.rand(len(SIM_LOW)))
 
-    num_passes = lambda: (
-        np.array(step_history[-window_size:]) >= target_step_count
-    ).sum()
+    num_passes = lambda: (np.array(history[-window_size:]) >= target).sum()
 
     while num_passes() < window_size // 2 and (
         num_steps is None or num_steps < step_limit
     ):
-        sim.agent.update_expl_noise(i, step_limit or 1000)
+        sim.agent.update_expl_noise(i, step_limit or 1500)
 
         has_valid = False
         while not has_valid:
             x = rng()
-            sim.sim_reset(*x)
+            # sim.sim_reset(*x)
+            reset(sim, x)
             sim.update_sim_status()
             has_valid = sim.get_sim_status()[1]
 
-        ep_log = run_episode(x, sim, step_limit=step_limit - num_steps)
-        num_steps += len(ep_log)
-        step_history.append(len(ep_log))
+        ep = run_episode(x, sim, step_limit=step_limit - num_steps)
+        num_steps += ep.num_steps
+        history.append(ep.num_steps if target_step_count else ep.distance_traveled)
 
     return num_passes() >= window_size // 2
 
@@ -265,6 +469,7 @@ def warmup(
 def rerun_and_train(
     sim: Simulation,
     requests: list[np.ndarray],
+    step_criteria: int,
     cur_step: int = None,
     target_steps: int = None,
     step_limit: int = None,
@@ -286,36 +491,61 @@ def rerun_and_train(
 
     target_steps = target_steps or step_limit or len(requests) * 50
 
+    use_noise = cur_step is not None
+    sim.agent.use_noise = use_noise
+
     sim.agent.training = True
 
     for i, x in enumerate(requests):
         if total_steps >= step_limit:
             break
-        sim.agent.update_expl_noise(cur_step + i, target_steps)
+        if use_noise:
+            sim.agent.update_expl_noise(cur_step + i, target_steps)
 
-        sim.sim_reset(*x)
+        # sim.sim_reset(*x)
+        reset(sim, x)
         sim.update_sim_status()
         is_valid = sim.get_sim_status()[1]
         if not is_valid:
             continue
 
-        ep = run_episode(x, sim, step_limit=step_limit - total_steps)
+        ep = run_episode(
+            x, sim, step_criteria, step_limit=step_limit - total_steps, fixed_noise=0.3
+        )  # TODO
         ep_log.append(ep)
+        total_steps += ep.num_steps
 
     return ep_log
 
 
+def timeit_test():
+    from timeit import default_timer as timer
+
+    times = []
+    for i in range(10):
+        t0 = timer()
+        sim = setup_sim()
+        ep_log = train_standard(sim, 2000)
+        times.append(timer() - t0)
+
+    print(sum(times) / len(times))
+
+
+# timeit_test()
+
+# 84.817
+
 # sim = setup_sim()
-# ep_log = train_standard(sim, 100)
+# ep_log = train_standard(sim, 2000)
 # print([ep.num_steps for ep in ep_log[-10:]])
 
-import pstats
+# import pstats
 
-pstats.Stats("profile.out").sort_stats("cumtime").print_stats(20)
+# pstats.Stats("profile.out").sort_stats("cumtime").print_stats(20)
 
 # run_episode(
 #     map_norm((SIM_LOW, SIM_HIGH), np.array([0.5] * 4)),
 #     sim,
-#     display_mode="play",
+#     display_mode="step",
 #     train=False,
 # )

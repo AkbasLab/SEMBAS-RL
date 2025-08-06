@@ -61,10 +61,12 @@ class Vehicle:
         """
         self.center_point = center_point
         speed_fps = self.mph_to_fps(speed_mph)
-        self.speed_fps = np.clip(speed_fps, self.min_speed_fps, self.max_speed_fps)
+        self.speed_fps: float = np.clip(
+            speed_fps, self.min_speed_fps, self.max_speed_fps
+        )
         self.abs_heading = abs_heading
-        self.distance_travelled_ft = 0
-        self.acceleration_fps2 = 0
+        self.distance_travelled_ft = 0.0
+        self.acceleration_fps2 = 0.0
         self.body.build_body(center_point=center_point, turn_angle=abs_heading)
 
     def vehicle_capabilities_str(self):  # Tested as of 3/31/2025
@@ -142,7 +144,7 @@ class Vehicle:
             dt_sec (float): Time step in seconds.
         """
         # Updating acceleration by clipping by the vehicle max breaking and acceleration capabilities
-        self.acceleration_fps2 = np.clip(
+        self.acceleration_fps2: float = np.clip(
             acceleration_fps2,
             -self.max_breaking_fps2,
             self.max_acceleration_fps2,
@@ -153,7 +155,7 @@ class Vehicle:
         new_speed = self.speed_fps + dv
 
         # Update speed based on acceleration and clipping based on the vehicles speed capabilities
-        new_speed = np.clip(new_speed, self.min_speed_fps, self.max_speed_fps)
+        new_speed: float = np.clip(new_speed, self.min_speed_fps, self.max_speed_fps)
 
         # Apply steering: rotate the direction vector by the steering input
         turn_angle = steering_rad * dt_sec
