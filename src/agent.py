@@ -34,7 +34,7 @@ class Agent:
         sensor_data = self.sensor_array.sense(env, vehicle)
         return sensor_data
 
-    def save(self, path="./checkpoints/latest_agent.pt"):
+    def save(self, path=".checkpoints/latest_agent.pt"):
         os.makedirs(path, exist_ok=True)
         torch.save(
             {

@@ -381,7 +381,7 @@ class NewAgent(Agent):
                 self.tau * local_param.data + (1.0 - self.tau) * target_param.data
             )
 
-    def save(self, dir_path="./checkpoints", tag="latest"):
+    def save(self, path=".checkpoints/agent_latest.pt"):
         """
         Save the model parameters.
 
@@ -391,7 +391,7 @@ class NewAgent(Agent):
         """
         import os
 
-        os.makedirs(dir_path, exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(
             {
                 "actor_state_dict": self.actor.state_dict(),
@@ -401,11 +401,9 @@ class NewAgent(Agent):
                 "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
                 "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
             },
-            os.path.join(dir_path, f"agent_{tag}.pt"),
+            path,
         )
-        carlos_logging.log_message(
-            f"Saved model checkpoint to {dir_path}/agent_{tag}.pt"
-        )
+        carlos_logging.log_message(f"Saved model checkpoint to {path}")
 
     def load(self, path):
         """

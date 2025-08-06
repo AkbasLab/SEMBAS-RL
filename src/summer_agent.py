@@ -153,7 +153,7 @@ class SummerAgent(Agent):
         )
         print(f"Actor grad norm: {actor_grad_norm}")
 
-    def save(self, dir_path="./checkpoints", tag="latest"):
+    def save(self, dir_path=".checkpoints", tag="latest"):
         os.makedirs(dir_path, exist_ok=True)
         torch.save(
             {
