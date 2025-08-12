@@ -85,9 +85,9 @@ class Lane:
         y_center = self.spline_y(self.t_center)
         centers = np.array([x_center, y_center]).T
 
-        if self.closed_loop:
-            # Appends the reference to the first point rather than creating a new point at the exact same spot
-            centers = np.vstack([centers, centers[0]])
+        # if self.closed_loop:
+        #     # Appends the reference to the first point rather than creating a new point at the exact same spot
+        #     centers = np.vstack([centers, centers[0]])
 
         return centers
 
@@ -190,8 +190,9 @@ class Lane:
             tuple[float, float]: Tuple of x and y coordinates at the given parameter t.
         """
 
-        if self.closed_loop:
-            edge = center_pts[:-1] + slop_vectors * multiplier
-        else:
-            edge = center_pts + slop_vectors * multiplier
+        # if self.closed_loop:
+        #     edge = center_pts[:-1] + slop_vectors * multiplier
+        # else:
+        #     edge = center_pts + slop_vectors * multiplier
+        edge = center_pts + slop_vectors * multiplier
         return edge

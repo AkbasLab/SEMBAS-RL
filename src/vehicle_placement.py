@@ -70,17 +70,19 @@ def interpolate_points(points: list[np.ndarray], t: float) -> np.ndarray:
     if t >= 1:
         return points[-1]
 
-    total_dist = sum(np.linalg.norm(b - a) for a, b in zip(points[:-1], points[1:]))
+    dists = [np.linalg.norm(b - a) for a, b in zip(points[:-1], points[1:])]
+    total_dist = sum(dists)
 
     target_dist = t * total_dist
     acc_dist = 0.0
 
-    for a, b in zip(points[:-1], points[1:]):
+    for a, b, seg_len in zip(points[:-1], points[1:], dists):
+        if seg_len == 0:
+            continue
+
         s = b - a
-        seg_len = np.linalg.norm(s)
         if acc_dist + seg_len >= target_dist:
             local_t = (target_dist - acc_dist) / seg_len
-
             return a + s * local_t
         acc_dist += seg_len
 
@@ -145,7 +147,7 @@ def get_direction(
     p2 = interpolate_points(points, t2)
     s = p2 - p1
     norm = np.linalg.norm(s)
-    return s / norm if norm != 0 else np.ndarray(0.0, 0.0)
+    return s / norm if norm != 0 else np.array([0.0, 0.0])
 
 
 def get_center_point(lane: Lane, longitude: float, latitude: float) -> np.ndarray:

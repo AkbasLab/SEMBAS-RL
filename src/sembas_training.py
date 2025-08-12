@@ -61,10 +61,10 @@ LR_CRITIC = 1e-2
 # LR_CRITIC = 1e-3
 GAMMA = 0.99
 NUM_DIM = 4
-# SIM_LOW = np.array([0, 0.25, -np.pi / 5, 20.0])
-# SIM_HIGH = np.array([1, 0.75, np.pi / 5, 75.0])
-SIM_LOW = np.array([0, -np.pi / 5])
-SIM_HIGH = np.array([1, np.pi / 5])
+SIM_LOW = np.array([0, 0.25, -np.pi / 5, 20.0])
+SIM_HIGH = np.array([1, 0.75, np.pi / 5, 75.0])
+# SIM_LOW = np.array([0, -np.pi / 5])
+# SIM_HIGH = np.array([1, np.pi / 5])
 
 EST_STEPS_PER_EP = 15  # early episodes are short
 
@@ -79,11 +79,13 @@ class EpisodeData:
         steps: list,
         distance_traveled: float,
         cls: bool,
+        interestingness=None,
     ):
         self.parameters = parameters
         self.steps = steps
         self.cls = cls
         self.distance_traveled = distance_traveled
+        self.interestingness = interestingness
 
     @staticmethod
     def failed(parameters: ndarray) -> "EpisodeData":
@@ -189,7 +191,6 @@ def run_episode(
     display_mode: Literal["off", "play", "step"] = "off",
     skip_failures=True,
     show_reward=False,
-    fixed_noise=None,
 ):
     "Runs the episode (if valid) and returns step history and class."
     # sim.sim_reset(*x)
@@ -211,10 +212,6 @@ def run_episode(
         rewards = []
         fig, ax = plt.subplots()
         ax.set_title("reward")
-
-    if fixed_noise:
-        sim.agent.use_noise = True
-        sim.agent.exploration_noise = fixed_noise
 
     # run episode
     while not done and len(steps) < step_limit:
@@ -254,20 +251,23 @@ def train_standard(
     num_steps: int,
     noise_step_start: int = None,
     noise_step_target: int = None,
+    fixed_noise: float = None,
 ) -> list[EpisodeData]:
-    fig, axl = plt.subplots()
-    _i = 0
+    assert (fixed_noise or noise_step_start) or not (noise_step_start and fixed_noise)
     dists = []
     episode_log = []
 
     total_steps = 0
-    use_noise = noise_step_start is not None
+    use_noise = noise_step_start is not None or fixed_noise is not None
     noise_step_target = noise_step_target or num_steps
+
+    if fixed_noise:
+        sim.agent.set_noise(fixed_noise)
     sim.agent.use_noise = use_noise
 
     while total_steps < num_steps:
         print(total_steps)
-        if use_noise:
+        if noise_step_start:
             sim.agent.update_expl_noise(
                 noise_step_start + total_steps, noise_step_target
             )
@@ -282,19 +282,12 @@ def train_standard(
         total_steps += ep.num_steps
         episode_log.append(ep)
 
-        if total_steps >= _i * 500:
-            test_eps = perf_test(sim, 50)
-            dists.append(np.array([ep.distance_traveled for ep in test_eps]).mean())
-            axl.clear()
-            axl.plot(np.arange(len(dists)), dists, color="blue")
-            plt.pause(0.5)
-            _i += 1
-
     return episode_log
 
 
 def perf_test(sim: Simulation, num_episodes: int, max_steps=1000):
     ep_log = []
+    sim.agent.use_noise = False
     for i in range(num_episodes):
         logger.info(f"Episode {i}")
         logger.info(f"Finding valid start...")
@@ -321,6 +314,8 @@ def train_sembas(
     random_size: int = None,
     expl_batch_size_factor=1.5,
     max_global_search=1000,
+    fixed_sembas_noise=0.3,
+    fixed_random_noise=None,
 ):
     """
     Arguments:
@@ -397,7 +392,11 @@ def train_sembas(
                 if random_size:
                     logger.info("[Training] Random training")
                     train_standard(
-                        sim, random_size, total_train_steps, step_count_target
+                        sim,
+                        random_size,
+                        total_train_steps,
+                        step_count_target,
+                        fixed_noise=fixed_random_noise,
                     )
 
                 logger.info("[Training] Sembas training")
@@ -408,6 +407,7 @@ def train_sembas(
                     # cur_step=total_train_steps,
                     step_limit=step_limit,
                     target_steps=step_count_target,
+                    fixed_noise=fixed_sembas_noise,
                 )
 
                 # test_eps = perf_test(sim, 50)
@@ -473,6 +473,7 @@ def rerun_and_train(
     cur_step: int = None,
     target_steps: int = None,
     step_limit: int = None,
+    fixed_noise=None,
 ):
     """
     Arguments:
@@ -487,19 +488,24 @@ def rerun_and_train(
     """
 
     ep_log = []
-    total_steps = 0
+    total_steps_taken = 0
 
     target_steps = target_steps or step_limit or len(requests) * 50
 
-    use_noise = cur_step is not None
-    sim.agent.use_noise = use_noise
+    use_noise = cur_step is not None or fixed_noise is not None
 
     sim.agent.training = True
+    if fixed_noise:
+        sim.agent.use_noise = True
+        sim.agent.exploration_noise = fixed_noise
+
+    sim.agent.use_noise = use_noise
 
     for i, x in enumerate(requests):
-        if total_steps >= step_limit:
+        if total_steps_taken >= step_limit:
             break
-        if use_noise:
+
+        if use_noise and fixed_noise is None:
             sim.agent.update_expl_noise(cur_step + i, target_steps)
 
         # sim.sim_reset(*x)
@@ -510,10 +516,13 @@ def rerun_and_train(
             continue
 
         ep = run_episode(
-            x, sim, step_criteria, step_limit=step_limit - total_steps, fixed_noise=0.3
-        )  # TODO
+            x,
+            sim,
+            step_criteria,
+            step_limit=step_limit - total_steps_taken,
+        )
         ep_log.append(ep)
-        total_steps += ep.num_steps
+        total_steps_taken += ep.num_steps
 
     return ep_log
 

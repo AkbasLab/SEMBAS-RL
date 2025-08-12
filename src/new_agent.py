@@ -177,6 +177,10 @@ class NewAgent(Agent):
         else:
             self.exploration_noise = 0
 
+    def set_noise(self, noise: float):
+        self.use_noise = noise != 0.0
+        self.exploration_noise = noise
+
     def set_lr(self, critic_lr: float = None, actor_lr: float = None):
         if critic_lr:
             self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
