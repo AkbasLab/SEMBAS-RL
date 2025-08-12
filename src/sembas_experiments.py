@@ -22,8 +22,8 @@ def create_result_dict(
     test_step_counts = st.EpisodeData.get_step_history(test_ep_log)
     test_dist = st.EpisodeData.get_distance_history(test_ep_log)
     test_rewards = st.EpisodeData.get_reward_history(test_ep_log)
-    train_dist = st.EpisodeData.get_distance_history(train_ep_log)
     train_step_counts = st.EpisodeData.get_step_history(train_ep_log)
+    train_dist = st.EpisodeData.get_distance_history(train_ep_log)
     train_rewards = st.EpisodeData.get_reward_history(train_ep_log)
 
     train_slog = [int(x) for x in train_step_counts]
@@ -49,13 +49,15 @@ def create_result_dict(
     }
 
 
-def save_run(rdict: dict, title, i=None):
+def save_run(sim: st.Simulation, rdict: dict, title, i=None):
     suffix = f"-{i}" if i is not None else ""
     filepath = Path(f".results/{title}/run{suffix}.json")
-
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, "w") as f:
         json.dump(rdict, f)
+
+    Path(f".models/{title}/agent{suffix}.pt").parent.mkdir(parents=True, exist_ok=True)
+    sim.agent.save(f".models/{title}/agent{suffix}.pt")
 
 
 def sembas_training(
@@ -211,14 +213,14 @@ def test_sembas(
             step_criteria,
             train_size,
             batch_size,
-            random_size=random_size,  # random_size=150
-            fixed_sembas_noise=fixed_sembas_noise,
-            fixed_random_noise=fixed_random_noise,
+            # random_size=random_size,  # random_size=150
+            fixed_sembas_noise=0.3,
+            # fixed_random_noise=fixed_random_noise,
         )
         test_eps = perf_test(sim, num_episodes=50)
 
         result = create_result_dict(test_eps, train_eps)
-        save_run(result, name, i)
+        save_run(sim, result, name, i)
 
 
 def test_random(
@@ -249,7 +251,7 @@ def test_random(
         test_eps = perf_test(sim, num_episodes=50)
 
         result = create_result_dict(test_eps, train_eps)
-        save_run(result, name, i)
+        save_run(sim, result, name, i)
 
 
 def review_last(title: str, num_runs: int):
@@ -363,7 +365,8 @@ def full_no_wup_run(
     from itertools import product
 
     total = 10000
-    random_sizes = [None, 250, 500]
+    random_sizes = [None]
+    # random_sizes = [None, 250, 500]
     # wup_types = ["simple"]
     # random_sizes = [None]
     ndim = st.SIM_LOW.shape[0]
@@ -381,17 +384,30 @@ def full_no_wup_run(
 
         test_sembas(
             f"sembas-no_wup-r{random_size}-{ndim}d",
-            random_size=random_size,
-            train_size=s_total,
-            fixed_sembas_noise=0.3,
             session=session,
             step_criteria=STEP_CRITERIA,
+            # random_size=random_size,
+            train_size=s_total,
+            batch_size=bs,
+            fixed_sembas_noise=0.3,
         )
 
     test_random(
         f"random-no_wup-{ndim}d",
         train_size=total,
     )
+
+
+def full_target_perf_run():
+    """
+    trains until a success criteria is met, or resources are exhausted.
+    This training will pause for performance evaluation after 500 simulation steps, at
+    which point it will run 20 random episodes to evaluate its median distance traveled.
+    If the median is above 100 feet, it will terminate.
+    """
+
+    target_dist = 100
+    max_steps = 10000
 
 
 import os
@@ -477,25 +493,29 @@ boundary pairs at this point. In the future we need to make that possible but...
 
 # full_no_wup_run()
 
+
+review_last("random-no_wup-4d", 20)
+review_last("sembas-no_wup-rNone-4d", 20)
+
 # NOTE: another test to try is ground-up training. promising early results...
 # review_last("sembas-experienced-rNone-4d", 20)
 # review_last("random-experienced-4d", 20)
 
-sim = st.setup_sim()
-session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
-train_eps = sembas_training(
-    session,
-    sim,
-    STEP_CRITERIA,
-    10000,
-    500,
-    fixed_sembas_noise=0.3,
-)
+# sim = st.setup_sim()
+# session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
+# train_eps = sembas_training(
+#     session,
+#     sim,
+#     STEP_CRITERIA,
+#     10000,
+#     500,
+#     fixed_sembas_noise=0.3,
+# )
 
-# sim.agent.save()
-eps = perf_test(sim, 50)
-print(st.EpisodeData.get_distance_history(eps).mean())
-print(st.EpisodeData.get_step_history(eps).mean())
+# # sim.agent.save()
+# eps = perf_test(sim, 50)
+# print(st.EpisodeData.get_distance_history(eps).mean())
+# print(st.EpisodeData.get_step_history(eps).mean())
 
 # fig, ax = plt.subplots()
 # plot_all_runs(ax, "sembas-simple-s50-rNone-4d", mode="mean")
