@@ -191,8 +191,10 @@ def run_episode(
     display_mode: Literal["off", "play", "step"] = "off",
     skip_failures=True,
     show_reward=False,
+    early_stop_with_crit=False,
 ):
     "Runs the episode (if valid) and returns step history and class."
+    assert not early_stop_with_crit or step_criteria is not None
     # sim.sim_reset(*x)
     reset(sim, x)
     sim.update_sim_status()
@@ -215,6 +217,9 @@ def run_episode(
 
     # run episode
     while not done and len(steps) < step_limit:
+        if early_stop_with_crit and (len(steps) >= step_criteria):
+            break
+
         state, action, reward, next_state = sim.sim_step()
 
         sim.update_sim_status()
@@ -285,6 +290,46 @@ def train_standard(
     return episode_log
 
 
+def train_standard_by_distance(
+    sim: Simulation,
+    target_distance: float,
+    batch_size: int,
+    max_batches: int,
+    noise_step_target: int,
+) -> list[EpisodeData]:
+    train_eps = []
+    test_eps = []
+
+    total_steps = 0
+    noise_step_target = noise_step_target
+    cur_batch = 0
+
+    sim.agent.use_noise = True
+    prev_median_distance = 0
+    while prev_median_distance < target_distance and cur_batch < max_batches:
+        print(total_steps)
+        batch_steps_taken = 0
+        while batch_steps_taken < batch_size:
+            sim.agent.update_expl_noise(total_steps, noise_step_target)
+            is_valid = False
+            while not is_valid:
+                x = map_norm((SIM_LOW, SIM_HIGH), np.random.random(len(SIM_LOW)))
+                ep = run_episode(x, sim, step_limit=batch_size - batch_steps_taken)
+                is_valid = not ep.is_failure
+
+            batch_steps_taken += ep.num_steps
+            total_steps += ep.num_steps
+            train_eps.append(ep)
+
+        cur_batch += 1
+        eps = perf_test(sim, 20)
+        prev_median_distance = np.median(EpisodeData.get_distance_history(eps))
+        test_eps.extend(eps)
+
+    has_passed = prev_median_distance >= target_distance
+    return train_eps, test_eps, has_passed
+
+
 def perf_test(sim: Simulation, num_episodes: int, max_steps=1000):
     ep_log = []
     sim.agent.use_noise = False
@@ -353,6 +398,7 @@ def train_sembas(
                     step_criteria,
                     "BE",
                     max_steps=max_global_search,
+                    early_stop_with_crit=True,
                 )
                 if session.prev_known_phase == "BE":
                     process = "BE"
@@ -376,6 +422,7 @@ def train_sembas(
                     step_criteria,
                     train=False,
                     step_limit=batch_upper_bound - batch_steps,
+                    early_stop_with_crit=True,
                     # display_mode="play",
                     # show_reward=True,
                 )
@@ -425,6 +472,121 @@ def train_sembas(
                 batch_steps = 0
 
     return training_data
+
+
+def train_sembas_by_distance(
+    session: api.SembasSession,
+    sim: Simulation,
+    step_criteria: int,
+    distance_target: float,
+    max_batches: int,
+    batch_step_size: int,
+    expl_batch_size_factor=1.5,
+    max_global_search=1000,
+    fixed_sembas_noise=0.3,
+):
+    """
+    Train using SEMBAS with a target distance criteria
+    Arguments:
+    - session (SembasSession): The session with SEMBAS to handle parameter selection.
+    - sim (Simulation): The simulation to run.
+    - step_criteria (int): The number of steps defining a "success".
+    - step_count_target (int): The number of training steps before termination.
+    - batch_step_size (int): The number of SEMBAS boundary training steps for each batch of training.
+        Keep this as some factor of @step_count_target.
+    - random_size (int, optional): The number of random training steps between sembas training.
+    - expl_batch_size_factor (float): If random_size is specified, this determines how many exploration
+        steps to take (random_size * expl_batch_size_factor).
+        This is needed due to train steps != exploration steps due to RNG. This provides a margin of
+        additional training data to prevent not hitting the training target. If this is too small, it
+        is possible/likely the total number of training steps will not equal @step_count_target.
+    - max_global_search (int): The limit to the number of GS episodes taken before failing out.
+    """
+    batch_upper_bound = int(batch_step_size * expl_batch_size_factor)
+    training_data = []
+    batch_episodes = []
+    process = "NewSearch"
+    total_train_steps = 0
+    batch_steps = 0
+    cur_batch = 0
+
+    perf_history = []
+
+    prev_median_dist = None
+    while (
+        prev_median_dist is None
+        or prev_median_dist < distance_target
+        or process == "Training"
+    ) and (cur_batch < max_batches):
+        match process:
+            case "NewSearch":
+                logger.info("Starting new search")
+                run_until_phase(
+                    session,
+                    sim,
+                    step_criteria,
+                    "BE",
+                    max_steps=max_global_search,
+                )
+                if session.prev_known_phase == "BE":
+                    process = "BE"
+                else:
+                    raise RuntimeError("Failed to find boundary during GS!")
+            case "BE":
+                if session.expect_phase() != api.SembasSession.PHASE_BOUNDARY_EXPL:
+                    logger.info(
+                        f"Phase change to {session.prev_known_phase}, assuming boundary complete. Starting new search."
+                    )
+                    process = "NewSearch"
+                    continue
+                elif batch_steps >= batch_upper_bound:
+                    process = "Training"
+                    continue
+
+                x = session.receive_request()
+                ep = run_episode(
+                    x,
+                    sim,
+                    step_criteria,
+                    train=False,
+                    step_limit=batch_upper_bound - batch_steps,
+                    # display_mode="play",
+                    # show_reward=True,
+                )
+                batch_steps += ep.num_steps
+                session.send_response(ep.cls)
+
+                if not ep.is_failure:
+                    batch_episodes.append(ep)
+
+            case "Training":
+                logger.info("Training")
+                step_limit = batch_step_size
+
+                logger.info("[Training] Sembas training")
+                ep_log = rerun_and_train(
+                    sim,
+                    EpisodeData.get_request_history(batch_episodes),
+                    step_criteria,
+                    step_limit=step_limit,
+                    fixed_noise=fixed_sembas_noise,
+                )
+
+                total_train_steps += sum(EpisodeData.get_step_history(ep_log))
+                training_data.extend(ep_log)
+
+                test_eps = perf_test(sim, 20)
+                prev_median_dist = np.median(EpisodeData.get_distance_history(test_eps))
+                perf_history.extend(test_eps)
+
+                process = "NewSearch"
+                session.send_message(MSG_REACQ)
+                batch_episodes = []
+                batch_steps = 0
+                cur_batch += 1
+
+    has_passed = prev_median_dist >= distance_target
+    return training_data, perf_history, has_passed
 
 
 def warmup(

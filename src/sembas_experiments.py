@@ -1,4 +1,6 @@
 from typing import Literal
+
+from matplotlib.axes import Axes
 import sembas_training as st
 import sembas_api as api
 import json
@@ -17,7 +19,7 @@ def create_wup_list(wup_type: str, num_runs: int):
 
 
 def create_result_dict(
-    test_ep_log: list[st.EpisodeData], train_ep_log: list[st.EpisodeData]
+    test_ep_log: list[st.EpisodeData], train_ep_log: list[st.EpisodeData], **extra
 ):
     test_step_counts = st.EpisodeData.get_step_history(test_ep_log)
     test_dist = st.EpisodeData.get_distance_history(test_ep_log)
@@ -46,6 +48,7 @@ def create_result_dict(
         "test-rewards": test_rlog,
         "test-steps": test_slog,
         "test_dist": test_dlog,
+        **extra,
     }
 
 
@@ -188,7 +191,6 @@ def test_sembas(
     wup_paths: list[str] = None,
     random_size: int = None,
     fixed_sembas_noise=0.3,
-    fixed_random_noise=None,
     session: api.SembasSession = None,
     step_criteria=STEP_CRITERIA,
     start_index=None,
@@ -203,7 +205,6 @@ def test_sembas(
         if wup_paths is not None:
             sim.agent.load(wup_paths[i])
         else:
-            # sembas_warmup(sim, i)
             print("skipping warmup")
             sim.agent = st.agent_factory()
 
@@ -213,9 +214,8 @@ def test_sembas(
             step_criteria,
             train_size,
             batch_size,
-            # random_size=random_size,  # random_size=150
-            fixed_sembas_noise=0.3,
-            # fixed_random_noise=fixed_random_noise,
+            random_size=random_size,
+            fixed_sembas_noise=fixed_sembas_noise,
         )
         test_eps = perf_test(sim, num_episodes=50)
 
@@ -228,7 +228,6 @@ def test_random(
     num_runs=20,
     train_size: int = 5000,
     wup_paths: list[str] = None,
-    fixed_noise=None,
     s_random_size=None,
 ):
     sim = st.setup_sim()
@@ -238,14 +237,12 @@ def test_random(
         if wup_paths is not None:
             sim.agent.load(wup_paths[i])
         else:
-            # sembas_warmup(sim, i)
             print("Skipping warmup")
             sim.agent = st.agent_factory()
 
         train_eps = random_training(
             sim,
             train_size,
-            fixed_noise=fixed_noise,
             s_random_size=s_random_size,
         )
         test_eps = perf_test(sim, num_episodes=50)
@@ -257,14 +254,21 @@ def test_random(
 def review_last(title: str, num_runs: int):
     steps = 0
     dist = 0
+    train_steps = 0
+    passes = 0
     for i in range(num_runs):
         fn = f"run-{i}.json"
         with open(f".results/{title}/{fn}") as f:
             data = json.load(f)
-            steps += data["test-step-mean"]
-            dist += data["test-dist-mean"]
+        train_steps += sum(data["train-steps"])
+        steps += data["test-step-mean"]
+        dist += data["test-dist-mean"]
+        if "has_passed" not in data or data["has_passed"]:
+            passes += 1
 
-    print(f"{title}: mean steps: {steps / num_runs}, mean distance: {dist / num_runs}")
+    print(
+        f"{title}: trained in {train_steps/num_runs} steps. Test mean steps: {steps / num_runs}, mean distance: {dist / num_runs}. Pass rate: {passes / num_runs}"
+    )
 
 
 # def show_results(title: str, index: int):
@@ -319,15 +323,19 @@ def full_run(
     from itertools import product
 
     total = 5000
-    wup_types = ["experienced", "simple"]
-    random_sizes = [None, 250, 500]
-    # wup_types = ["simple"]
-    # random_sizes = [None]
-    criteria = [30, 50]
+    # wup_types = [None, "experienced", "simple"]
+    # random_sizes = [None, 250, 500]
+    # fixed_sembas_noises = [0.1, 0.3, 0.5]
+    wup_types = ["simple"]
+    random_sizes = [None]
+    fixed_sembas_noises = [0.5]
+    criteria = [5, 10, 20, 50]
     ndim = st.SIM_LOW.shape[0]
 
     session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
-    for warmup_type, random_size in product(wup_types, random_sizes):
+    for warmup_type, random_size, noise, crit in product(
+        wup_types, random_sizes, fixed_sembas_noises, criteria
+    ):
         if sembas_continue_from and (warmup_type, random_size) != sembas_continue_from:
             continue
         else:
@@ -338,13 +346,13 @@ def full_run(
         s_total = total if random_size is None else total // (1 + random_size / bs)
 
         test_sembas(
-            f"sembas-{warmup_type}-r{random_size}-{ndim}d",
-            wup_paths=create_wup_list(warmup_type, 20),
+            f"sembas-c{crit}-{ndim}d",
+            wup_paths=create_wup_list(warmup_type, 20) if warmup_type else None,
             random_size=random_size,
             train_size=s_total,
-            fixed_sembas_noise=0.3,
+            fixed_sembas_noise=noise,
             session=session,
-            step_criteria=STEP_CRITERIA,
+            step_criteria=crit,
         )
 
     for warmup_type in wup_types:
@@ -405,9 +413,37 @@ def full_target_perf_run():
     which point it will run 20 random episodes to evaluate its median distance traveled.
     If the median is above 100 feet, it will terminate.
     """
+    sim = st.setup_sim()
 
+    num_tests = 20
+    step_criteria = 20
     target_dist = 100
-    max_steps = 10000
+    batch_size = 500
+    max_steps = 20000
+    max_batches = max_steps // batch_size
+
+    # session = api.SembasSession([st.SIM_LOW, st.SIM_HIGH], plot_samples=False)
+    # for i in range(num_tests):
+    #     sim.agent = st.agent_factory()
+    #     train, test, has_passed = st.train_sembas_by_distance(
+    #         session,
+    #         sim,
+    #         step_criteria,
+    #         target_dist,
+    #         max_batches,
+    #         batch_size,
+    #     )
+    #     rdict = create_result_dict(test, train, has_passed=bool(has_passed))
+    #     save_run(sim, rdict, f"sembas-target_perf", i)
+
+    for i in range(2, num_tests):
+        sim.agent = st.agent_factory()
+        train, test, has_passed = st.train_standard_by_distance(
+            sim, target_dist, batch_size, max_batches, max_steps * 0.75
+        )
+
+        rdict = create_result_dict(test, train, has_passed=bool(has_passed))
+        save_run(sim, rdict, f"random-target_perf", i)
 
 
 import os
@@ -459,10 +495,25 @@ def plot_all_runs(
     else:
         for i, run_train, run_test in zip(range(len(train)), train, test):
             if not skip_train:
-                ax.plot(np.arange(len(run_train)), run_train, label=f"run_{i}-train")
-            if not skip_test:
-                ax.plot(np.arange(len(run_test)), run_test, label=f"run_{i}-test")
+                ax.plot(
+                    np.arange(len(run_train)),
+                    run_train,
+                    label=f"run_{i}-train",
+                    alpha=0.2,
+                )
 
+            if not skip_test:
+                ax.plot(
+                    np.arange(len(run_test)), run_test, label=f"run_{i}-test", alpha=0.2
+                )
+        if not skip_test:
+            test_mean = np.array(test).mean(axis=0)
+            ax.plot(
+                np.arange(len(test_mean)),
+                test_mean,
+                label=f"test-mean",
+                color="blue",
+            )
     ax.legend()
 
 
@@ -483,6 +534,48 @@ def plot_results(ax, title: str):
     ax.legend()
 
 
+def plot_results_comp(
+    ax: Axes,
+    titles: list[str],
+    colors=[
+        "orange",
+        "cyan",
+        "lime",
+        "purple",
+        "teal",
+        "magenta",
+        "yellow",
+        "green",
+        "red",
+        "blue",
+    ],
+):
+    ax.set_title("Comparison")
+    mean = None
+    individual_means = []
+    for title, c in zip(titles, colors):
+        test = []
+        num_train_steps = 0
+        for i, fn in enumerate(os.listdir(f".results/{title}")):
+            with open(f".results/{title}/{fn}") as f:
+                data = json.load(f)
+                test.append(data["test-dist-mean"])
+                num_train_steps += sum(data["train-steps"])
+        print("title", num_train_steps / 20)
+
+        if mean is None:
+            mean = np.array(test)
+        else:
+            mean += np.array(test)
+        individual_means.append(np.array(test).mean())
+        ax.plot(np.arange(len(test)), test, alpha=0.4, label=title, color=c)
+
+    mean = mean / len(titles)
+    ax.plot(np.arange(len(mean)), mean, color="blue", label="mean")
+    ax.hlines(individual_means, 0, len(test), colors=colors[: len(titles)])
+    ax.legend()
+
+
 """
 "Interestingness" is the delta between target and non-target points.
 
@@ -491,11 +584,26 @@ We divide by the change in parameter (magnitude) since we can't really know
 boundary pairs at this point. In the future we need to make that possible but...
 """
 
+# full_run()
 # full_no_wup_run()
-
-
-review_last("random-no_wup-4d", 20)
-review_last("sembas-no_wup-rNone-4d", 20)
+# full_target_perf_run()
+fig, ax = plt.subplots()
+# plot_run(ax, f"sembas-None-rNone-n0.5-4d", i)
+plot_results(ax, "sembas-target_perf")
+plot_results(ax, "random-target_perf")
+# plot_results_comp(ax, [f"sembas-experienced-rNone-n{n}-4d" for n in (0.1, 0.3, 0.5)])
+# plot_all_runs(ax, "sembas-None-rNone-n0.5-4d", mode="all", skip_train=True)
+plt.show()
+# review_last("sembas-c5-4d", 20)
+# review_last("sembas-c10-4d", 20)
+# review_last("sembas-c20-4d", 20)
+# review_last("sembas-c50-4d", 20)
+# review_last("sembas-None-rNone-n0.5-4d", 20)
+# review_last("sembas-None-rNone-n0.5-4d", 20)
+# review_last("random-no_wup-4d", 20)
+# review_last("sembas-no_wup-rNone-4d", 20)
+# review_last("sembas-target_perf", 20)
+# review_last("random-target_perf", 20)
 
 # NOTE: another test to try is ground-up training. promising early results...
 # review_last("sembas-experienced-rNone-4d", 20)

@@ -36,6 +36,7 @@ def run_until_phase(
     crit_step_c: int,
     target_phase: str,
     max_steps=1000,
+    early_stop_with_crit=False,
 ) -> dict[str, list[tuple[tuple, bool]]]:
     """
     Returns the training data developed on a given pass of the
@@ -71,6 +72,9 @@ def run_until_phase(
 
         # run episode
         while not done and steps < max_steps:
+            if early_stop_with_crit and steps >= crit_step_c:
+                break
+
             # Get action + step simulation
             state, action, reward, next_state = sim.sim_step()
 
